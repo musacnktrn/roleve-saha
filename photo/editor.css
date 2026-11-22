@@ -1,0 +1,228 @@
+dialog.photo-dialog {
+  width: min(1060px, calc(100vw - 20px));
+  max-height: 95dvh;
+}
+.photo-dialog .dialog-body {
+  padding: 12px 16px 14px;
+  overflow: auto;
+}
+.photo-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.photo-tools,
+.photo-controls,
+.photo-history,
+.photo-footer,
+.photo-discard,
+.photo-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.photo-button {
+  background: #f9faf6;
+  border: 1px solid #cbd5c8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  line-height: 1.2;
+  color: #203d30;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 620;
+  min-height: 36px;
+  cursor: pointer;
+}
+.photo-button[aria-pressed='true'],
+.photo-button.active {
+  color: #f3f7e8;
+  background: #284d37;
+  border-color: #284d37;
+}
+.photo-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.photo-button:focus-visible,
+.photo-editor select:focus-visible,
+.photo-editor :is(input, textarea):focus-visible {
+  outline: 3px solid #2b744e;
+  outline-offset: 1px;
+}
+.photo-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 160px;
+  height: clamp(170px, 45dvh, 560px);
+  border-radius: 8px;
+  background: #182620;
+}
+.photo-stage > svg {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.photo-stage [data-mark] {
+  cursor: pointer;
+}
+.photo-stage [data-handle] {
+  cursor: move;
+  pointer-events: all;
+}
+.photo-zoom {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #fffffff5;
+  border-radius: 7px;
+  padding: 2px;
+  color: #1a342b;
+}
+.photo-zoom .photo-button {
+  min-width: 34px;
+  padding: 3px 7px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+}
+.photo-zoom [data-zoom] {
+  font-size: 11px;
+  min-width: 34px;
+  text-align: center;
+}
+.photo-message {
+  min-height: 16px;
+  color: #485c4c;
+  font-size: 13px;
+}
+.photo-controls label,
+.photo-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #475b4e;
+  font-size: 11px;
+  font-weight: 650;
+  min-width: 0;
+}
+.photo-controls [data-list] {
+  max-width: 34ch;
+}
+.photo-fields {
+  padding: 8px;
+  border-radius: 8px;
+  background: #f0f4ec;
+  align-items: flex-end;
+}
+.photo-fields [data-copy] {
+  flex: 1 1 180px;
+}
+.photo-fields [data-raw] input {
+  width: 9em;
+}
+.photo-editor :is(select, input, textarea) {
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid #b8c7b8;
+  border-radius: 5px;
+  background: white;
+  color: #1d3228;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 4px 6px;
+}
+.photo-editor textarea {
+  resize: vertical;
+}
+.photo-history {
+  margin-left: auto;
+  align-self: flex-end;
+}
+.photo-error {
+  margin: 0;
+  color: #903b25;
+  font-size: 13px;
+  font-weight: 600;
+}
+.photo-error:empty {
+  display: none;
+}
+.photo-footer {
+  padding-top: 6px;
+  border-top: 1px solid #dce2d8;
+  justify-content: space-between;
+}
+.photo-discard {
+  padding: 7px 10px;
+  background: #fff2d8;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.photo-editor [hidden] {
+  display: none !important;
+}
+@media (pointer: coarse) {
+  .photo-editor :is(.photo-button, .primary, select, input) {
+    min-height: 44px;
+  }
+  .photo-zoom .photo-button {
+    min-width: 44px;
+  }
+}
+@media (max-width: 600px) {
+  dialog.photo-dialog {
+    width: calc(100vw - 8px);
+    max-height: 97dvh;
+  }
+  .photo-dialog .dialog-body {
+    padding: 8px;
+  }
+  .photo-tools {
+    gap: 3px;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .photo-tools .photo-button {
+    padding: 4px 1px;
+    font-size: 12px;
+  }
+  .photo-stage {
+    height: clamp(180px, 36dvh, 390px);
+  }
+  .photo-controls {
+    display: grid;
+    grid-template-columns: 1fr 82px;
+  }
+  .photo-controls [data-list] {
+    max-width: 100%;
+  }
+  .photo-history {
+    grid-column: 1/-1;
+    justify-self: start;
+    margin: 0;
+  }
+  .photo-zoom {
+    right: 3px;
+    bottom: 3px;
+  }
+  .photo-fields [data-copy],
+  .photo-fields [data-raw] {
+    flex: 1 1 90px;
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .photo-stage {
+    height: 52dvh;
+  }
+}
