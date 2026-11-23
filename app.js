@@ -15,6 +15,7 @@ import {
   hitSketches,
   faceFrame,
 } from './ui/sketch.js';
+import { openVerticalDetails, openVerticalChecks } from './ui/vertical-tools.js';
 import { bearingOnPlan, photoViewPoint, photoAimMarkup } from './ui/photo-placement.js';
 import { sampleProject } from './ui/demo.js';
 import { layout, library, customersPage } from './ui/layout.js';
@@ -33,6 +34,7 @@ import {
   newVisit,
   checks,
   measurementList,
+  surveyMethodLabel,
   chainForm,
   activeVisit,
 } from './ui/survey.js';
@@ -158,6 +160,7 @@ function set(patch) {
   if (Object.hasOwn(patch, 'roomId') && patch.roomId !== s.roomId)
     Object.assign(s, { wallId: null, elementId: null, zoneId: null, nodeId: null });
   Object.assign(s, patch);
+  if(s.mode==='elevation' && room() && !room().wallIds.includes(s.wallId)) s.wallId=room().wallIds[0] || null;
   if (prior !== viewKey()) box = viewBoxes.get(viewKey()) || null;
   rememberDraft();
   render();
@@ -276,6 +279,11 @@ async function commit(label, draft, { history = true } = {}) {
     undo.push(before);
     if (undo.length > 20) undo.shift();
     redo = [];
+  }
+  if (s.mode !== 'plan') {
+    const heightChanged = item(before.rooms,s.roomId)?.height !== item(saved.rooms,s.roomId)?.height;
+    const wasFit = box && baseBox && ['x','y','w','h'].every(k=>Math.abs(box[k]-baseBox[k])<0.02);
+    if (heightChanged || wasFit) { box = null; viewBoxes.delete(viewKey()); }
   }
   p = saved;
   failedDraft = null;
@@ -483,6 +491,11 @@ function render() {
   shell.querySelector('.sidebar').scrollTop = prevScroll.a;
   shell.querySelector('.inspector').scrollTop = prevScroll.b;
   shell.querySelector('#floor-select').onchange = (e) => set({ floorId: e.target.value });
+  const verticalSelect=shell.querySelector('[data-vertical-select]');
+  if(verticalSelect) verticalSelect.onchange=()=>{
+    if(verticalSelect.dataset.verticalSelect==='room') selectRoom(verticalSelect.value);
+    else set({wallId:verticalSelect.value,elementId:null,zoneId:null,tool:'select',anchors:[],draft:[]});
+  };
   const svg = shell.querySelector('#viewport');
   lastSvg = svg;
   const wireDrawing = (onTap, onDragNode) =>
@@ -812,7 +825,13 @@ async function viewPick(hit) {
     r = item(p.rooms, hit.roomId || e?.roomId),
     floorId = hit.floorId || r?.floorId || w?.floorId || s.floorId;
   if (s.tool === 'measure' && hit.anchor) {
-    addAnchor({ ...hit.anchor, floorId, roomId: r?.id || hit.anchor.roomId });
+    addAnchor({ ...hit.anchor, ...(hit.anchor.z===null ? {unmeasuredZ:true} : {}), floorId, roomId: r?.id || hit.anchor.roomId });
+    return;
+  }
+  if (s.tool === 'select' && r && (hit.roomHeight || (hit.heightZone && hit.zoneId))) {
+    const cut = s.mode === 'section' ? {sectionId:s.sectionId,sectionLine:s.sectionLine} : {};
+    set({floorId, ...cut, mode:s.mode, roomId:r.id, wallId:w?.id || null, zoneId:hit.zoneId || null, elementId:null});
+    await dispatch(hit.roomHeight ? 'room-height' : 'zone-info',hit.roomHeight ? r.id : hit.zoneId);
     return;
   }
   if (e) {
@@ -825,7 +844,7 @@ async function viewPick(hit) {
       elementId: e.id,
       mode: s.mode,
     });
-    if (hit.sectionOpening && s.tool !== 'measure') await dispatch('edit-element', e.id);
+    if (s.tool === 'select' && (hit.sectionOpening || s.mode==='elevation')) await dispatch('edit-element', e.id);
     return;
   }
   const patch = { floorId, mode: s.mode };
@@ -998,12 +1017,12 @@ function showObservation(id) {
   if (!o) return;
   let calc = 'Çözülmedi';
   try {
-    calc = metre(G.measure(p, o.a, o.b, o.kind));
+    calc = o.purpose==='room-ceiling' ? metre(item(p.rooms,o.roomId)?.height) : metre(G.measure(p, o.a, o.b, o.kind));
   } catch {}
   showDialog(
     'Ölçü kaydı',
     `<div class="stat-grid"><div><small>Kaydedilen okuma</small><strong>${esc(o.raw)} ${esc(o.unit)}</strong></div><div><small>Mevcut model</small><strong>${esc(calc)}</strong></div></div>
-  <p class="info-line">${esc(anchorLabel(p, o.a))} → ${esc(anchorLabel(p, o.b))}</p><p class="detail-copy">${esc(o.note || '')}${o.measuredBy ? ' · Sahada ölçen: ' + esc(o.measuredBy) : ''}${o.recordedBy ? ' · Kaydı giren: ' + esc(o.recordedBy) : ''} · ${esc(o.method)} · ${esc(o.date?.slice(0, 10))}</p><div class="form-tools">${button('repeat-obs', 'Yeniden ölç', 'ruler', 'primary', `data-id="${esc(id)}"`)}</div>`,
+  <p class="info-line">${esc(anchorLabel(p, o.a))} → ${esc(anchorLabel(p, o.b))}</p><p class="detail-copy">${esc(o.note || '')}${o.measuredBy ? ' · Sahada ölçen: ' + esc(o.measuredBy) : ''}${o.recordedBy ? ' · Kaydı giren: ' + esc(o.recordedBy) : ''} · ${esc(surveyMethodLabel(o.method))} · ${esc(o.date?.slice(0, 10))}</p><div class="form-tools">${button('repeat-obs', 'Yeniden ölç', 'ruler', 'primary', `data-id="${esc(id)}"`)}</div>`,
   );
 }
 
@@ -1314,9 +1333,13 @@ async function dispatch(act, id = '', el = null) {
     [
       'add-room',
       'edit-room',
+      'room-height',
+      'add-ceiling-zone',
+      'add-beam-zone',
       'add-floor',
       'resize-wall',
       'wall-more',
+      'wall-thickness',
       'add-element',
       'edit-element',
       'add-zone',
@@ -1454,6 +1477,40 @@ async function dispatch(act, id = '', el = null) {
     case 'close-panel':
       set({ mobilePanel: '' });
       break;
+    case 'vertical-checks':
+      openVerticalChecks(p,s);
+      break;
+    case 'vertical-fix-room':
+    case 'vertical-fix-zone':
+    case 'vertical-fix-wall':
+    case 'vertical-fix-element': {
+      const zone=act==='vertical-fix-zone' && item(p.zones,id);
+      const obj=act==='vertical-fix-element' && item(p.elements,id);
+      const wall=act==='vertical-fix-wall' && item(p.walls,id);
+      const target=item(p.rooms,el?.dataset.roomId || zone?.roomId || obj?.roomId || id);
+      if (!target || target.floorId!==s.floorId || (obj && !target.wallIds.includes(obj.wallId)) ||
+          (wall && !target.wallIds.includes(wall.id))) break;
+      closeDialog();
+      set({roomId:target.id, mode:obj||wall?'elevation':zone?'ceiling':s.mode, wallId:obj?.wallId||wall?.id||null,
+        elementId:obj?.id||null,zoneId:zone?.id||null,side:'inside',tool:'select',anchors:[],draft:[],mobilePanel:''});
+      await dispatch(obj?'edit-element':zone?'zone-info':wall?'wall-thickness':'room-height',id);
+      break;
+    }
+    case 'vertical-details':
+      openVerticalDetails(p,s);
+      break;
+    case 'flip-wall-face':
+      closeDialog();
+      set({side:s.side==='outside'?'inside':'outside',tool:'select',anchors:[],elementId:null});
+      break;
+    case 'shared-wall-room': {
+      const next=item(p.rooms,id);
+      if (next?.wallIds.includes(s.wallId)) {
+        closeDialog();
+        set({roomId:next.id,wallId:s.wallId,side:'inside',mode:'elevation',tool:'select',anchors:[],elementId:null,mobilePanel:''});
+      }
+      break;
+    }
     case 'rooms-panel':
       set({ mobilePanel: 'rooms' });
       break;
@@ -1540,7 +1597,8 @@ async function dispatch(act, id = '', el = null) {
       break;
     case 'repeat-obs': {
       const o = item(p.observations, id);
-      if (o) observationForm(c, o.a, o.b, o);
+      if (o?.purpose === 'room-ceiling' && item(p.rooms,o.roomId)) await dispatch('room-height',o.roomId);
+      else if (o) observationForm(c, o.a, o.b, o);
       break;
     }
     case 'chain':

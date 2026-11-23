@@ -240,7 +240,7 @@ export function planMarkup(p, s, mini = false) {
   const currentByPair = !mini && s.showDims !== false && s.anchorFn
     ? new Map(Array.from(currentWallReadings(p).values(), reading => [readingPair(reading), reading.id])) : new Map();
   if (!mini && s.showDims !== false && s.anchorFn)
-    for (const o of p.observations.filter((o) => o.floorId === s.floorId && !superseded.has(o.id))) {
+    for (const o of p.observations.filter((o) => o.floorId === s.floorId && o.purpose !== 'room-ceiling' && !superseded.has(o.id))) {
       try {
         const current = currentByPair.get(readingPair(o));
         if (current && current !== o.id) continue;

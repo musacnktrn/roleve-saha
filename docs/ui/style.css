@@ -463,11 +463,11 @@ p {
   overflow: hidden;
   background: #f7f9f3;
 }
-.stat-grid > div {
+.stat-grid > div, .stat-grid > .height-stat {
   padding: 9px 10px;
   border-right: 1px solid var(--border);
 }
-.stat-grid > div:last-child {
+.stat-grid > :last-child {
   border: 0;
 }
 .stat-grid small,
@@ -556,6 +556,27 @@ p {
   background: #eaf0e4;
   color: #29472e;
   box-shadow: inset 0 0 0 1px #d6e0cb;
+}
+.height-stat { text-align: left; cursor: pointer; }
+.height-stat strong { color: #315e49; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #9aaf92; }
+.vertical-toolbar { display: flex; align-items: center; min-height: 48px; flex: 0 0 auto; gap: 8px; padding: 2px 12px; background: #f6f8f1; border-bottom: 1px solid var(--border); }
+.vertical-toolbar select, .vertical-toolbar button { min-height: 44px; min-width: 0; font-size: 13px; }
+.vertical-toolbar select { appearance: none; -webkit-appearance: none; height: 44px; width: auto; max-width: 32%; border: 1px solid var(--border); border-radius: 6px; padding: 0 22px 0 8px; background: linear-gradient(45deg,transparent 50%,#556858 50%) right 12px center / 4px 4px no-repeat, linear-gradient(135deg,#556858 50%,transparent 50%) right 8px center / 4px 4px no-repeat, white; color: var(--ink); }
+.vertical-toolbar .height-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; font-weight: 530; color: #295440; padding: 4px 8px; border-radius: 7px; }
+.height-action:hover, .height-action:focus-visible { background: #e4edde; }
+.height-action strong { font-weight: 720; }
+.vertical-toolbar > .secondary { margin-left: auto; white-space: nowrap; }
+.vertical-details { display: grid; gap: 8px; }
+.vertical-details h3 { margin: 8px 0 0; font-size: 15px; }
+.vertical-details .dlg-row { width: 100%; text-align: left; min-height: 48px; }
+.vertical-details .row-wrap button { min-height: 44px; }
+@media (max-width: 650px) {
+  .vertical-toolbar { gap: 4px; padding: 2px 6px; }
+  .vertical-toolbar select, .vertical-toolbar button { min-height: 44px; font-size: 12px; }
+  .vertical-toolbar select { max-width: 27%; }
+  .vertical-toolbar .height-action { display: grid; justify-items:start; gap:1px; line-height:1.2; padding:3px 6px; }
+  .vertical-toolbar button svg { display: none; }
+  .vertical-toolbar > .secondary { padding: 4px 7px; }
 }
 .drawing-field {
   min-height: 0;

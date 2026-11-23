@@ -43,6 +43,22 @@ export class Drawing {
     const left=anchor==='middle'?x-len/2:anchor==='end'?x-len:x;
     this.take([{x:left,y:y-size},{x:left+len,y:y+size*.28}]);
     this.parts.push('<text'+attrs({x:n(x),y:n(y),'font-size':n(size),'font-family':'system-ui, sans-serif','font-weight':options.bold?650:500,'text-anchor':anchor,fill:options.color??palette.ink,'pointer-events':'none','letter-spacing':options.spacing,stroke:options.halo?palette.paper:undefined,'stroke-width':options.halo?size*.14:undefined,'stroke-linejoin':options.halo?'round':undefined,'paint-order':options.halo?'stroke':undefined})+'>'+esc(label)+'</text>');
+    return {left,right:left+len,middleY:y-size*.36};
+  }
+  // The physical edge stays a thin line. Only the separate caption receives a full touch target.
+  surfaceTarget({from,to,caption,detail,at,color=palette.teal,anchor='start',width=1.35,dash},pick) {
+    this.parts.push('<g'+attrs(this.pickAttrs(pick))+'>');
+    const hit=(a,b,pixels)=>this.parts.push('<path'+attrs({d:'M'+xy(a)+'L'+xy(b),fill:'none',stroke:'transparent','stroke-width':pixels,'vector-effect':'non-scaling-stroke','pointer-events':'stroke','aria-hidden':'true'})+'/>');
+    if(from&&to) {
+      this.line(from,to,{stroke:color,width,dash});
+      hit(from,to,12);
+    }
+    if(caption&&at) {
+      if(detail)this.text(at.x,at.y-this.font,detail,{anchor,size:this.font*.71,color,halo:true});
+      const box=this.text(at.x,at.y,caption,{anchor,size:this.font*.85,color,halo:true,bold:true});
+      hit({x:box.left,y:box.middleY},{x:box.right,y:box.middleY},44);
+    }
+    this.parts.push('</g>');
   }
   sectionTarget(l,r,base,head,pick) {
     const mid=(l+r)/2;

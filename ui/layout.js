@@ -1,5 +1,6 @@
 /* [codex] ureten: codex */
 import { esc, icon, button, ib, num, metre, dateText } from './base.js';
+import { verticalToolbar } from './vertical-tools.js';
 import { roomArea, roomPoints, wallLength } from '../geometry/core.js';
 import { wallName, roomColor, planMarkup, padded, viewStr, currentWallReadings, readingMethod } from './plan.js';
 export const modes = [
@@ -129,7 +130,7 @@ function inspector(p, s) {
     return `<button data-act="wall" data-id="${esc(id)}" class="wall-line ${w?.id === id ? 'active' : ''}"><span class="wall-letter">${wallName(i)}</span><span>Duvar ${wallName(i)}<small>${source}</small></span><b>${esc(value)}</b></button>`;
   }
   let body = r
-    ? `<div class="room-kicker"><span class="code-tag">${esc(r.code)}</span><span>Seçili mahal</span></div><h2>${esc(r.name)}</h2><div class="stat-grid">${stat('Net alan', num(roomArea(p, r.id) / 1e6, 2) + ' m²')}${stat('Tavan', metre(r.height))}</div>${button('edit-room', 'Mahal özellikleri', 'settings', 'text-btn small')}
+    ? `<div class="room-kicker"><span class="code-tag">${esc(r.code)}</span><span>Seçili mahal</span></div><h2>${esc(r.name)}</h2><div class="stat-grid">${stat('Net alan', num(roomArea(p, r.id) / 1e6, 2) + ' m²')}<button class="height-stat" data-act="room-height" data-id="${esc(r.id)}" aria-label="Mahal tavan yüksekliğini düzenle"><small>Tavan</small><strong>${esc(Number.isFinite(r.height) ? metre(r.height) : 'Ölçü gir')}</strong></button></div>${button('edit-room', 'Mahal özellikleri', 'settings', 'text-btn small')}
     <section><div class="group-title"><h3>Duvarlar</h3><span class="count">${r.wallIds.length}</span></div><div class="wall-list">${r.wallIds.map(wallRow).join('')}</div></section>`
     : `<div class="empty">Başlamak için bir mahal seçin.</div>`;
   if (w && r) {
@@ -150,6 +151,7 @@ export function layout(p, s) {
     `<div class="project-head"><div class="head-title">${ib('projects', 'Proje arşivine dön', 'folder')}<div class="title-text"><h1>${esc(p.name)}</h1><div class="subtle">${p.customer?.name ? esc(p.customer.name) + ' <span>/</span> ' : ''}${p.location ? esc(p.location) + ' <span> / </span> ' : ''}${esc(floor?.name || 'Kat yok')}</div></div></div><div class="head-actions"><div class="history">${ib('undo', 'Geri al', 'undo', s.undo ? '' : 'disabled')}${ib('redo', 'Yinele', 'redo', s.redo ? '' : 'disabled')}</div>${button('export', 'Dışa aktar', 'download', 'primary')}${ib('more', 'Diğer işlemler', 'dots')}</div></div>
     <div class="workspace">${sidebar(p, s)}<main class="drawing" id="drawing" tabindex="-1"><div class="views">${modes.map(([key, name, ic]) => button('view', name, ic, 'view ' + (s.mode === key ? 'on' : ''), `data-mode="${key}" aria-pressed="${s.mode === key}"`)).join('')}</div>
     <div class="mobile-ribbon">${button('rooms-panel', 'Kat ve mahaller', 'layers', 'text-btn')}${button('detail-panel', 'Özellikler', 'settings', 'text-btn')}</div>
+    ${verticalToolbar(p,s)}
     <div class="drawing-field ${s.grid ? 'grid-bg' : ''}"><div class="drawing-label"><span class="live-dot"></span>${esc(floor?.name)}<span> / </span>${esc(modes.find((v) => v[0] === s.mode)?.[1])}</div>
     ${['plan', 'ceiling'].includes(s.mode) && Number.isFinite(p.northAngle) ? `<div class="north" aria-label="Kuzey ${+p.northAngle} derece"><b>K</b><i style="transform:rotate(${+p.northAngle}deg)"></i></div>` : ''}
     <svg id="viewport" role="img" aria-label="${esc(p.name)} ${esc(s.mode)} çizimi" preserveAspectRatio="xMidYMid meet"></svg>

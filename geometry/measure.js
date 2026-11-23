@@ -155,6 +155,49 @@ function pointOnFace(p, w, t, side, roomId) {
     y: y - ((b.x - a.x) * sense * w.thickness * fraction) / d,
   };
 }
+/** Portions of a room's interior wall face touched by a zone, measured from wall.a in mm. */
+export function wallInteriorSpans(p, roomId, wallId, ring) {
+  const room = entity(p.rooms, roomId, 'Mahal');
+  const wall = entity(p.walls, wallId, 'Duvar');
+  const wallIndex = room.wallIds.indexOf(wallId);
+  if (wallIndex < 0) throw new Error('Bu duvar seçili mahale ait değil.');
+  let a, b;
+  try {
+    a = pointOnFace(p, wall, 0, 'inside', roomId);
+    b = pointOnFace(p, wall, 1, 'inside', roomId);
+  } catch (error) {
+    if (error instanceof UnresolvedGeometry) return [];
+    throw error;
+  }
+  const size = dist(a, b), dx = (b.x - a.x) / size, dy = (b.y - a.y) / size;
+  const inward = Math.sign(signedArea(roomPoints(p, roomId))) * (room.nodeIds[wallIndex] === wall.a ? 1 : -1);
+  const winding = Math.sign(signedArea(ring));
+  const relative = ring.map(pt => ({u:(pt.x-a.x)*dx+(pt.y-a.y)*dy, v:(pt.y-a.y)*dx-(pt.x-a.x)*dy}));
+  const cuts = [0,size], edges = [];
+  const add = u => { if (u > EPS && u < size-EPS) cuts.push(u); };
+  for (let i=0; i<relative.length; i++) {
+    const c=relative[i], d=relative[(i+1)%relative.length];
+    if (Math.abs(c.v) <= EPS) add(c.u);
+    if (Math.abs(c.v) <= EPS && Math.abs(d.v) <= EPS) {
+      edges.push({from:Math.min(c.u,d.u),to:Math.max(c.u,d.u),intoRoom:winding*Math.sign(d.u-c.u)===inward});
+    } else if (c.v*d.v < 0) {
+      add(c.u+(d.u-c.u)*c.v/(c.v-d.v));
+    }
+  }
+  cuts.sort((x,y)=>x-y);
+  const spans = [];
+  for (let i=1; i<cuts.length; i++) {
+    const from=cuts[i-1], to=cuts[i];
+    if (to-from <= EPS) continue;
+    const mid=(from+to)/2;
+    const edge=edges.find(e=>e.from<=mid && mid<=e.to);
+    if (!(edge ? edge.intoRoom : insidePolygon({x:a.x+dx*mid,y:a.y+dy*mid},ring))) continue;
+    const previous=spans.at(-1);
+    if (previous && from-previous[1] <= EPS) previous[1]=to;
+    else spans.push([from,to]);
+  }
+  return spans;
+}
 export function assertAnchorReference(p, a) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) throw new Error('Ölçü için iki uç seçin.');
   const references = [a.nodeId, a.wallId, a.elementId].filter((id) => id != null);
@@ -213,7 +256,7 @@ export function resolveAnchor(p, anchor) {
     else localHeight = e.sill + (anchor.vertical === 'top' ? e.height : 0);
   } else point = { x: finite(anchor.x, 'Ölçü ucu X'), y: finite(anchor.y, 'Ölçü ucu Y') };
   if (anchor.z != null) point.z = finite(anchor.z, 'Ölçü kotu');
-  else if (floorId && localHeight != null)
+  else if (floorId && localHeight != null && !anchor.unmeasuredZ)
     point.z = entity(p.floors, floorId, 'Kat').elevation + localHeight;
   return point;
 }

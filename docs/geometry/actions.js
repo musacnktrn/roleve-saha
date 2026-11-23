@@ -30,6 +30,8 @@ import {
 import { button, esc, fmt, icon, metre } from '../ui/base.js';
 import { closeDialog, form, showDialog } from '../ui/dialog.js';
 import { elements as elementLabels, zoneNames as zoneLabels } from '../ui/layout.js';
+import { activeVisit } from '../ui/survey.js';
+import { ceilingMethods, ceilingMethodLabel, ceilingOpeningConflicts, roomCeilingInfo, setRoomCeiling } from './ceiling.js';
 
 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const edgeName = (i) => (i < chars.length ? chars[i] : String(i + 1));
@@ -53,6 +55,11 @@ const length = (key, title, mm, u, required = true) => ({
 function mm(d, key, u, nullable = false) {
   const v = String(d[key] ?? '').trim();
   return !v && nullable ? null : parseLength(v, u);
+}
+// The editing field displays a rounded value. A name or note change must preserve the surveyed precision.
+function editedMm(data, key, unit, original, nullable = true) {
+  if (Number.isFinite(original) && data[key] === fmt(original, unit)) return original;
+  return mm(data, key, unit, nullable);
 }
 const number = (raw, title) => {
   const v = String(raw ?? '')
@@ -222,40 +229,221 @@ function showAddRoom(ctx, r, initialKind = 'rect') {
     }
   );
 }
-function showEditRoom(ctx, r) {
+function ceilingHistory(info) {
+  if (!info.history.length) return '<p class="tiny-empty" data-ceiling-history>Önceki tavan ölçüsü yok.</p>';
+  const rows = info.history.map((o) => {
+    const instant = new Date(o.date);
+    const date = Number.isFinite(instant.getTime())
+      ? instant.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
+      : 'Tarih bilinmiyor';
+    const entered = o.entered || o.raw + ' ' + o.unit;
+    const original = /(mm|cm|m)$/i.test(entered) ? entered : entered + ' ' + o.unit;
+    return (
+      '<li>' +
+      esc(original) +
+      ' · ' +
+      esc(ceilingMethodLabel(o.method)) +
+      ' · ' +
+      esc(date) +
+      (o.id === info.current?.id ? ' · güncel' : ' · önceki') +
+      '</li>'
+    );
+  });
+  return (
+    '<details data-ceiling-history><summary>Tavan ölçü geçmişi (' +
+    rows.length +
+    ')</summary><ol>' +
+    rows.join('') +
+    '</ol></details>'
+  );
+}
+
+function showEditRoom(ctx, r, heightOnly = false) {
   const p = ctx.p,
-    u = p.unit,
-    areas = surveyAreas(p, r.id);
+    unit = p.unit,
+    info = roomCeilingInfo(p, r.id);
+  const shownHeight = (u) => (r.height == null ? '' : formatLength(r.height, u));
+  const identity = heightOnly
+    ? []
+    : [text('name', 'Mahal adı', r.name, true), text('code', 'Mahal kodu', r.code)];
+  const actions = heightOnly
+    ? '<button type="button" class="secondary" data-ceiling-next="ceiling">Tavan bölgesi ekle</button> ' +
+      '<button type="button" class="secondary" data-ceiling-next="beam">Kiriş altı ekle</button>'
+    : '<button type="button" class="secondary" id="room-copy">' +
+      icon('layers', 16) +
+      ' Şablondan çoğalt</button>';
+  const areas = heightOnly ? null : surveyAreas(p, r.id);
+  const area = areas
+    ? '<p class="intro">Plan ' +
+      esc((areas.footprint / 1e6).toLocaleString('tr-TR', { maximumFractionDigits: 2 })) +
+      ' m² · Döşeme ' +
+      esc((areas.floorSlab / 1e6).toLocaleString('tr-TR', { maximumFractionDigits: 2 })) +
+      ' m²</p>'
+    : '';
   const extra =
-    '<p class="intro">Plan ' +
-    esc((areas.footprint / 1e6).toLocaleString('tr-TR', { maximumFractionDigits: 2 })) +
-    ' m² · Döşeme ' +
-    esc((areas.floorSlab / 1e6).toLocaleString('tr-TR', { maximumFractionDigits: 2 })) +
-    ' m²</p><button type="button" class="secondary" id="room-copy">' +
-    icon('layers', 16) +
-    ' Şablondan çoğalt</button>';
+    '<div class="preview-box" data-ceiling-preview aria-live="polite"></div>' +
+    ceilingHistory(info) +
+    area +
+    '<div class="form-tools">' +
+    actions +
+    '</div>' +
+    '<div class="preview-box" data-ceiling-discard hidden>Kaydedilmemiş değişiklikler var. ' +
+    '<button type="button" class="secondary" data-ceiling-stay>Düzenlemeye dön</button> ' +
+    '<button type="button" class="secondary" data-ceiling-abandon>Değişiklikleri at</button></div>';
   return form(
-    'Mahal bilgileri',
+    heightOnly ? 'Genel tavan yüksekliği' : 'Mahal bilgileri',
     [
-      text('name', 'Mahal adı', r.name, true),
-      text('code', 'Mahal kodu', r.code),
-      length('height', 'Net tavan yüksekliği', r.height, u, false),
+      ...identity,
+      {
+        key: 'height',
+        label: 'Bitmiş zeminden net tavan yüksekliği',
+        value: shownHeight(unit),
+        number: true,
+        maxlength: 48,
+        placeholder: '2,70 m',
+        hint: '2,70 m, 270 cm veya 2700 mm girebilirsiniz.',
+      },
+      select(
+        'unit',
+        'Ölçü birimi',
+        [
+          ['m', 'm'],
+          ['cm', 'cm'],
+          ['mm', 'mm'],
+        ],
+        unit
+      ),
+      select('method', 'Ölçüm yöntemi', [['', 'Yöntem belirtilmedi'], ...ceilingMethods], ''),
+      check('unmeasured', 'Ölçülmedi olarak kaydet'),
     ],
-    'Kaydet',
-    (d) =>
-      save(ctx, 'Mahal bilgileri güncellendi', (q) => {
-        const item = q.rooms.find((row) => row.id === r.id);
-        if (!item) throw Error('Mahal bulunamadı.');
-        if (!d.name.trim()) throw Error('Mahal adı girin.');
-        item.name = d.name.trim();
-        item.code = d.code.trim();
-        item.height = mm(d, 'height', u, true);
-        return validateProject(q);
-      }),
+    heightOnly ? 'Yüksekliği kaydet' : 'Kaydet',
+    async (d) => {
+      const unchangedReading = !d.unmeasured && !d.method && d.height === shownHeight(d.unit);
+      if (unchangedReading && (heightOnly || (d.name?.trim() === r.name && d.code?.trim() === r.code)))
+        return;
+      return save(
+        ctx,
+        heightOnly
+          ? d.unmeasured
+            ? 'Tavan yüksekliği ölçülmedi olarak işaretlendi'
+            : 'Tavan yüksekliği güncellendi'
+          : 'Mahal bilgileri güncellendi',
+        (q) => {
+          const current = q.rooms.find((row) => row.id === r.id);
+          if (!current) throw Error('Mahal bulunamadı.');
+          if (!heightOnly) {
+            if (!d.name.trim()) throw Error('Mahal adı girin.');
+            current.name = d.name.trim();
+            current.code = d.code.trim();
+          }
+          const outcome = unchangedReading
+            ? { changed: false }
+            : setRoomCeiling(q, r.id, { ...d, visitId: activeVisit(q)?.id });
+          validateProject(q);
+          return outcome.changed ? ceilingOpeningConflicts(q, r.id, current.height) : [];
+        },
+        (conflicts) => {
+          if (conflicts.length) ctx.toast(conflicts[0].message + ' Kontrol listesine eklendi.');
+        }
+      );
+    },
     {
+      intro:
+        [info.floor.name, r.code, r.name].filter(Boolean).join(' / ') +
+        ' · Kat bitmiş zemin proje kotu ' +
+        metre(info.floor.elevation) +
+        '.',
       extra,
       after: (f) => {
-        f.querySelector('#room-copy').onclick = () => showDuplicate(ctx, r);
+        f.dataset.roomHeight = r.id;
+        const field = (name) => f.elements.namedItem(name);
+        const height = field('height'),
+          method = field('method'),
+          units = field('unit'),
+          unknown = field('unmeasured');
+        const preview = f.querySelector('[data-ceiling-preview]'),
+          discard = f.querySelector('[data-ceiling-discard]');
+        const state = () => JSON.stringify([...new FormData(f)]);
+        const initial = state();
+        let lastUnit = unit;
+        function update() {
+          height.disabled = method.disabled = units.disabled = unknown.checked;
+          if (unknown.checked) {
+            preview.textContent =
+              'Genel tavan ölçülmedi olarak kaydedilecek. Önceki ölçüler geçmişte görünür.';
+            return;
+          }
+          if (!height.value.trim()) {
+            preview.textContent = 'Genel net yükseklik ve proje tavan kotu ölçülmedi.';
+            return;
+          }
+          try {
+            const v = parseLength(height.value, units.value);
+            if (v <= 0) throw Error('Net yükseklik sıfırdan büyük olmalı.');
+            const label = method.value
+              ? ceilingMethodLabel(method.value)
+              : info.height != null && Math.abs(v - info.height) < 0.00001
+                ? info.methodLabel
+                : 'Yöntem belirtilmedi';
+            const conflicts = ceilingOpeningConflicts(p, r.id, v);
+            preview.textContent =
+              'Genel net yükseklik ' +
+              metre(v) +
+              ' · Proje tavan kotu ' +
+              metre(info.floor.elevation + v) +
+              ' · ' +
+              label +
+              '.' +
+              (conflicts.length
+                ? ' ' + conflicts.map((c) => c.message).join(' ') + ' Kontrol listesinde görünür.'
+                : '');
+          } catch (e) {
+            preview.textContent = e.message;
+          }
+        }
+        units.addEventListener('change', () => {
+          if (!unknown.checked && r.height != null && height.value === shownHeight(lastUnit))
+            height.value = shownHeight(units.value);
+          lastUnit = units.value;
+          update();
+        });
+        f.addEventListener('input', update);
+        f.addEventListener('change', update);
+        function next(fn) {
+          if (state() === initial) {
+            fn();
+            return;
+          }
+          f.querySelector('.err').textContent =
+            'Diğer işleme geçmeden önce değişiklikleri kaydedin veya Vazgeç ile çıkın.';
+        }
+        f.querySelectorAll('[data-ceiling-next]').forEach((b) => {
+          b.onclick = () => next(() => zoneDialog(ctx, r, null, b.dataset.ceilingNext));
+        });
+        const copy = f.querySelector('#room-copy');
+        if (copy) copy.onclick = () => next(() => showDuplicate(ctx, r));
+        const dialog = f.closest('dialog');
+        const requestClose = () => {
+          if (f.querySelector('[type="submit"]').disabled) return;
+          if (state() === initial) {
+            closeDialog();
+            return;
+          }
+          discard.hidden = false;
+          discard.querySelector('[data-ceiling-stay]').focus();
+        };
+        dialog.querySelector('#dlg-x').onclick = requestClose;
+        dialog.oncancel = (e) => {
+          e.preventDefault();
+          requestClose();
+        };
+        f.querySelector('.cancel').onclick = requestClose;
+        discard.querySelector('[data-ceiling-stay]').onclick = () => {
+          discard.hidden = true;
+          (unknown.checked ? unknown : height).focus();
+        };
+        discard.querySelector('[data-ceiling-abandon]').onclick = closeDialog;
+        update();
       },
     }
   );
@@ -486,6 +674,21 @@ function nodeDialog(ctx, r, id) {
     }
   );
 }
+function wallThicknessDialog(ctx, r, wid) {
+  const w = ctx.p.walls.find((item) => item.id === wid),
+    u = ctx.p.unit;
+  return form(
+    'Bitmiş yüzler arası kalınlık',
+    [length('thickness', 'Kalınlık', w.thickness, u, false)],
+    'Kaydet',
+    (d) =>
+      save(ctx, 'Duvar kalınlığı güncellendi', (q) => {
+        q.walls.find((edge) => edge.id === wid).thickness = editedMm(d, 'thickness', u, w.thickness);
+        validateProject(q);
+      }),
+    { intro: r.name + ' · Duvar ' + edgeName(r.wallIds.indexOf(wid)) }
+  );
+}
 function wallMenu(ctx, r, wid) {
   const p = ctx.p,
     u = p.unit,
@@ -493,22 +696,7 @@ function wallMenu(ctx, r, wid) {
     len = wallLength(p, wid);
   return menu('Duvar ' + edgeName(r.wallIds.indexOf(wid)), [
     ['resize', 'Uzunluk ve kontrol ölçüsü', 'dimension', () => resizeDialog(ctx, r, wid)],
-    [
-      'thick',
-      'Duvar kalınlığı',
-      'wall',
-      () =>
-        form(
-          'Bitmiş yüzler arası kalınlık',
-          [length('thickness', 'Kalınlık', w.thickness, u, false)],
-          'Kaydet',
-          (d) =>
-            save(ctx, 'Duvar kalınlığı güncellendi', (q) => {
-              q.walls.find((edge) => edge.id === wid).thickness = mm(d, 'thickness', u, true);
-              validateProject(q);
-            })
-        ),
-    ],
+    ['thick', 'Duvar kalınlığı', 'wall', () => wallThicknessDialog(ctx,r,wid)],
     [
       'lock',
       w.locked ? 'Duvar kilidini kaldır' : 'Duvar boyunu kilitle',
@@ -675,12 +863,14 @@ function arcDialog(ctx, r, wid) {
   );
 }
 
-function elementDialog(ctx, r, existing) {
+function elementDialog(ctx, r, existing, faceRoom = r) {
   const p = ctx.p,
     u = p.unit,
     wallId = existing?.wallId || selectedWall(ctx, r);
   const choice = existing?.type || 'door';
   const openType = (t) => t === 'door' || t === 'window';
+  const viewingRoom = (wid) => (faceRoom.wallIds.includes(wid) ? faceRoom : r);
+  const read = (d, key, nullable = true) => editedMm(d, key, u, existing?.[key], nullable);
   const swingChoice =
     existing?.reversedAlongWall && existing.swing
       ? existing.swing.replace(/^(left|right)/, (m) => (m === 'left' ? 'right' : 'left'))
@@ -723,13 +913,17 @@ function elementDialog(ctx, r, existing) {
     length('handleHeight', 'Kol/mandal kotu (eşikten)', existing?.handleHeight, u, false),
   ];
   return form(
-    existing ? 'Öğe bilgileri' : 'Açıklık veya öğe ekle',
+    existing
+      ? faceRoom.id === r.id
+        ? 'Öğe bilgileri'
+        : 'Öğe bilgileri · ' + faceRoom.name
+      : 'Açıklık veya öğe ekle',
     fields,
     existing ? 'Kaydet' : 'Ekle',
     async (d) => {
       const shouldOpen = openAfterSave;
       openAfterSave = false;
-      if (shouldOpen && (!(mm(d, 'width', u, true) > 0) || !(mm(d, 'height', u, true) > 0))) {
+      if (shouldOpen && (!(read(d, 'width') > 0) || !(read(d, 'height') > 0))) {
         throw Error('Detaya çizmek için açıklığın ölçülen genişliğini ve yüksekliğini gir.');
       }
       let savedId;
@@ -737,31 +931,36 @@ function elementDialog(ctx, r, existing) {
         ctx,
         existing ? 'Öğe güncellendi' : 'Öğe eklendi',
         (q) => {
+          const sameSwing =
+            existing?.type === d.type &&
+            d.wallId === existing.wallId &&
+            (d.type !== 'door' || (d.swing || '') === (swingChoice || ''));
           const data = {
             roomId: r.id,
             wallId: d.wallId,
             type: d.type,
             name: d.name.trim() || elementLabels[d.type],
             side: d.side,
-            offset: mm(d, 'offset', u),
-            width: mm(d, 'width', u, true) ?? 0,
-            sill: mm(d, 'sill', u, true),
-            height: mm(d, 'height', u, true),
-            depth: mm(d, 'depth', u, true),
-            swing: d.type === 'door' ? d.swing || null : null,
-            reversedAlongWall: false,
+            offset: read(d, 'offset', false),
+            width: read(d, 'width') ?? 0,
+            sill: read(d, 'sill'),
+            height: read(d, 'height'),
+            depth: read(d, 'depth'),
+            swing: d.type === 'door' ? (sameSwing ? (existing.swing ?? null) : d.swing || null) : null,
+            reversedAlongWall: sameSwing ? existing.reversedAlongWall : false,
             hardware: openType(d.type) ? d.hardware.trim() || null : null,
-            handleHeight: openType(d.type) ? mm(d, 'handleHeight', u, true) : null,
+            handleHeight: openType(d.type) ? read(d, 'handleHeight') : null,
           };
           if (!existing) return addElement(q, data);
           return updateElement(q, existing.id, data);
         },
         (item) => {
           savedId = item.id;
+          const selected = viewingRoom(item.wallId);
           ctx.set({
             elementId: item.id,
-            roomId: r.id,
-            floorId: r.floorId,
+            roomId: selected.id,
+            floorId: selected.floorId,
             wallId: item.wallId,
             zoneId: null,
           });
@@ -774,7 +973,12 @@ function elementDialog(ctx, r, existing) {
       return ok;
     },
     {
-      intro: r.name + ' · Kotları bu katın bitmiş döşemesine göre gir. Ölçülmeyen alanları boş bırak.',
+      intro:
+        (faceRoom.id === r.id ? r.name : faceRoom.name + ' yüzü · Açıklık kaydı ' + r.name) +
+        ' · Kotları bu katın bitmiş döşemesine göre gir. Ölçülmeyen alanları boş bırak.' +
+        (faceRoom.id === r.id
+          ? ''
+          : ' Ofset ve menteşe ' + r.name + ' mahalindeki duvarın A → B yönüne göre gösterilir.'),
       extra:
         '<p id="opening-levels" class="intro" aria-live="polite"></p>' +
         (existing
@@ -814,23 +1018,38 @@ function elementDialog(ctx, r, existing) {
           }
           const inputs = Object.fromEntries(new FormData(f));
           try {
-            const info = openingLevels(p, {
-              roomId: r.id,
-              wallId: wallInput.value,
-              sill: mm(inputs, 'sill', u, true),
-              height: mm(inputs, 'height', u, true),
-              offset: mm(inputs, 'offset', u, true) ?? 0,
-              width: mm(inputs, 'width', u, true) ?? 0,
-            });
+            const selected = viewingRoom(wallInput.value);
+            const info = openingLevels(
+              p,
+              {
+                roomId: r.id,
+                wallId: wallInput.value,
+                sill: read(inputs, 'sill'),
+                height: read(inputs, 'height'),
+                offset: read(inputs, 'offset') ?? 0,
+                width: read(inputs, 'width') ?? 0,
+              },
+              selected.id
+            );
             const head =
               info.head == null
                 ? 'Lento kotu için eşik ve yükseklik gerekli.'
                 : 'Lento ' + metre(info.head) + ' · Proje kotu ' + metre(info.headZ) + '.';
-            const roof =
-              info.ceiling == null
+            const roof = info.missingWallFace
+              ? info.ceiling == null
+                ? 'Mahal genel tavanı ölçülmedi.'
+                : 'Mahal genel tavan yüksekliği ' + metre(info.ceiling) + '.'
+              : info.ceiling == null
                 ? 'Tavan kotu ölçülmedi.'
-                : 'Bu açıklık üzerinde ölçülmüş en düşük tavan/kiriş altı ' + metre(info.ceiling) + '.';
-            levels.textContent = head + ' ' + roof;
+                : 'Bu açıklık üzerindeki en düşük tavan/kiriş altı ' + metre(info.ceiling) + '.';
+            const clash =
+              info.head != null && info.ceiling != null && info.head > info.ceiling + 0.00001
+                ? ' Lento ' + formatLength(info.head - info.ceiling, 'mm') + ' mm aşıyor.'
+                : '';
+            const missing = info.missingWallFace
+              ? ' Ortak duvar kalınlığı ölçülmedi. Bu yüzdeki yerel tavan veya kiriş altı henüz kontrol edilemiyor.'
+              : '';
+            levels.textContent = selected.name + ' · ' + head + ' ' + roof + clash + missing;
           } catch (error) {
             levels.textContent = error.message;
           }
@@ -870,23 +1089,35 @@ function elementDialog(ctx, r, existing) {
     }
   );
 }
-function parseSlope(value, unit) {
+const slopeLine = (pt, unit) => [pt.x, pt.y, pt.z].map((v) => fmt(v, unit)).join('; ');
+function parseSlope(value, unit, prior = []) {
   if (!String(value || '').trim()) return [];
+  const lines = prior.map((pt) => slopeLine(pt, unit)),
+    used = new Set();
   return String(value)
     .trim()
     .split(/\r?\n/)
     .map((line, i) => {
+      const same =
+        lines[i] === line && !used.has(i) ? i : lines.findIndex((s, index) => s === line && !used.has(index));
+      if (same !== -1) {
+        used.add(same);
+        return structuredClone(prior[same]);
+      }
       const items = line
         .trim()
         .split(/[;\t]+/)
         .map((s) => s.trim());
       if (items.length !== 3 || items.some((v) => !v))
         throw Error(i + 1 + '. satırda X; Y; alt kot bekleniyor.');
-      const [x, y, z] = items.map((n) => parseLength(n, unit));
+      const sameXY = prior[i] && items[0] === fmt(prior[i].x, unit) && items[1] === fmt(prior[i].y, unit);
+      const x = sameXY ? prior[i].x : parseLength(items[0], unit);
+      const y = sameXY ? prior[i].y : parseLength(items[1], unit);
+      const z = parseLength(items[2], unit);
       return { x, y, z };
     });
 }
-function zoneDialog(ctx, r, existing) {
+function zoneDialog(ctx, r, existing, initialType = 'platform') {
   const p = ctx.p,
     u = p.unit,
     points = roomPoints(p, r.id),
@@ -898,7 +1129,7 @@ function zoneDialog(ctx, r, existing) {
   ];
   if (existing) shapes.unshift(['keep', 'Mevcut sınır']);
   const fields = [
-    select('type', 'Bölge türü', options(zoneLabels), existing?.type || 'platform'),
+    select('type', 'Bölge türü', options(zoneLabels), existing?.type || initialType),
     text('name', 'Bölge adı', existing?.name),
     select('shape', 'Plan sınırı', shapes, existing ? 'keep' : 'rect'),
     length('x', 'Başlangıç X', bb.left, u),
@@ -923,9 +1154,7 @@ function zoneDialog(ctx, r, existing) {
       type: 'textarea',
       full: true,
       label: 'Eğim ölçüleri (' + u + ')',
-      value: (existing?.slopePoints || [])
-        .map((pt) => [pt.x, pt.y, pt.z].map((v) => fmt(v, u)).join('; '))
-        .join('\n'),
+      value: (existing?.slopePoints || []).map((pt) => slopeLine(pt, u)).join('\n'),
       hint: 'Her satıra X; Y; alt kot. Düzlem için aynı doğru üzerinde olmayan üç nokta.',
     },
     { ...text('risers', 'Rıht adedi', existing?.risers || ''), number: true },
@@ -944,28 +1173,39 @@ function zoneDialog(ctx, r, existing) {
     ),
   ];
   return form(
-    existing ? 'Kot bölgesini düzenle' : 'Kot bölgesi ekle',
+    existing
+      ? 'Kot bölgesini düzenle'
+      : initialType === 'ceiling'
+        ? 'Tavan bölgesi ekle'
+        : initialType === 'beam'
+          ? 'Kiriş altı ekle'
+          : 'Kot bölgesi ekle',
     fields,
     'Uygula',
     async (d) => {
-      const bottom = mm(d, 'bottom', u, true),
-        top = mm(d, 'top', u, true);
+      const bottom = editedMm(d, 'bottom', u, existing?.bottom),
+        top = editedMm(d, 'top', u, existing?.top);
       if (bottom != null && top != null && top < bottom) throw Error('Üst kot, alt kotun altında.');
       const data = {
         roomId: r.id,
+        floorId: r.floorId,
         type: d.type,
         name: d.name.trim() || zoneLabels[d.type],
         bottom,
         top,
         targetZoneId: d.type === 'void' ? d.targetZoneId || null : null,
-        slopePoints: d.type === 'ceiling' ? parseSlope(d.slope, u) : [],
+        slopePoints: ['ceiling', 'beam'].includes(d.type)
+          ? parseSlope(d.slope, u, existing?.slopePoints || [])
+          : d.type === existing?.type
+            ? structuredClone(existing.slopePoints || [])
+            : [],
       };
       if (data.slopePoints.length >= 3) zoneSurfaceAt(data, data.slopePoints[0]);
       if (d.type === 'stair') {
         data.risers = d.risers ? number(d.risers, 'Rıht') : null;
         if (data.risers != null && (!Number.isInteger(data.risers) || data.risers < 1))
           throw Error('Pozitif bir rıht adedi girin.');
-        data.headroom = mm(d, 'headroom', u, true);
+        data.headroom = editedMm(d, 'headroom', u, existing?.headroom);
         data.ascending = d.ascending || null;
       }
       if (d.shape === 'draw') {
@@ -984,10 +1224,15 @@ function zoneDialog(ctx, r, existing) {
       if (d.shape === 'keep') data.points = structuredClone(existing.points);
       else if (d.shape === 'room') data.points = points.map(({ x, y }) => ({ x, y }));
       else
-        data.points = templatePoints('rect', mm(d, 'width', u), mm(d, 'depth', u), {
-          x: mm(d, 'x', u),
-          y: mm(d, 'y', u),
-        });
+        data.points = templatePoints(
+          'rect',
+          editedMm(d, 'width', u, bb.right - bb.left, false),
+          editedMm(d, 'depth', u, existing ? bb.bottom - bb.top : (bb.bottom - bb.top) / 2, false),
+          {
+            x: editedMm(d, 'x', u, bb.left, false),
+            y: editedMm(d, 'y', u, bb.top, false),
+          }
+        );
       return save(
         ctx,
         existing ? 'Kot bölgesi güncellendi' : 'Kot bölgesi eklendi',
@@ -998,7 +1243,7 @@ function zoneDialog(ctx, r, existing) {
           validateProject(q);
           return z;
         },
-        (z) => ctx.set({ roomId: r.id, zoneId: z.id, elementId: null, tool: 'select' })
+        (z) => ctx.set({ floorId: r.floorId, roomId: r.id, zoneId: z.id, elementId: null, tool: 'select' })
       );
     },
     {
@@ -1017,7 +1262,7 @@ function zoneDialog(ctx, r, existing) {
             y: rect,
             width: rect,
             depth: rect,
-            slope: type.value === 'ceiling',
+            slope: ['ceiling', 'beam'].includes(type.value),
             targetZoneId: type.value === 'void',
             risers: stair,
             headroom: stair,
@@ -1085,13 +1330,17 @@ export async function geometryAction(act, id, ctx) {
   if (
     ![
       'edit-room',
+      'room-height',
       'duplicate-room',
       'node-edit',
       'resize-wall',
       'wall-more',
+      'wall-thickness',
       'add-element',
       'edit-element',
       'add-zone',
+      'add-ceiling-zone',
+      'add-beam-zone',
       'zone-info',
     ].includes(act)
   )
@@ -1106,22 +1355,44 @@ export async function geometryAction(act, id, ctx) {
     ctx.toast('Önce düzenlenecek öğeyi seç.');
     return true;
   }
-  const r = e || z ? p.rooms.find((item) => item.id === (e || z).roomId) : selectedRoom(ctx);
+  const explicitRoom = id && ['edit-room', 'room-height', 'add-ceiling-zone', 'add-beam-zone'].includes(act);
+  const r =
+    e || z
+      ? p.rooms.find((item) => item.id === (e || z).roomId)
+      : explicitRoom
+        ? p.rooms.find((item) => item.id === id)
+        : selectedRoom(ctx);
   if (!r) {
+    if (explicitRoom) {
+      ctx.toast('Seçilen mahal bu projede bulunamadı.');
+      return true;
+    }
     ctx.toast('Önce bir mahal ekle.');
     showAddRoom(ctx, null);
     return true;
   }
   const w = r.wallIds.includes(id) ? id : selectedWall(ctx, r);
+  if (act === 'wall-thickness' && id && !r.wallIds.includes(id)) {
+    ctx.toast('Bu duvar seçili mahale ait değil.');
+    return true;
+  }
+  const selectedFace =
+    act === 'edit-element' && ['door', 'window'].includes(e.type)
+      ? p.rooms.find((item) => item.id === (ctx.s.roomId || ctx.room?.id) && item.wallIds.includes(e.wallId))
+      : null;
   const actions = {
     'edit-room': () => showEditRoom(ctx, r),
+    'room-height': () => showEditRoom(ctx, r, true),
     'duplicate-room': () => showDuplicate(ctx, r),
     'node-edit': () => nodeDialog(ctx, r, r.nodeIds.includes(id) ? id : null),
     'resize-wall': () => resizeDialog(ctx, r, w),
     'wall-more': () => wallMenu(ctx, r, w),
+    'wall-thickness': () => wallThicknessDialog(ctx, r, w),
     'add-element': () => elementDialog(ctx, r, null),
-    'edit-element': () => elementDialog(ctx, r, e),
+    'edit-element': () => elementDialog(ctx, r, e, selectedFace || r),
     'add-zone': () => zoneDialog(ctx, r, null),
+    'add-ceiling-zone': () => zoneDialog(ctx, r, null, 'ceiling'),
+    'add-beam-zone': () => zoneDialog(ctx, r, null, 'beam'),
     'zone-info': () => zoneDialog(ctx, r, z),
   };
   actions[act]();

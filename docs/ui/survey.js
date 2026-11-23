@@ -20,6 +20,9 @@ const methods = [
   ['estimate', 'Fotoğraf / tahmin'],
   ['model', 'Modelden hesap'],
 ];
+export function surveyMethodLabel(method) {
+  return methods.find(([key])=>key===method)?.[1] || ({tape:'Şerit metre',iphone:'Telefon ölçümü',unspecified:'Yöntem belirtilmedi'})[method] || 'Yöntem belirtilmedi';
+}
 export function anchorsFor(p, r) {
   if (!r) return [];
   const out = [];
@@ -116,7 +119,7 @@ export function observationForm(ctx, initialA = null, initialB = null, old = nul
         label: 'Ölçü kaynağı',
         choices:
           old?.method && !methods.some(([k]) => k === old.method)
-            ? [[old.method, old.method === 'tape' ? 'Şerit metre' : old.method], ...methods]
+            ? [[old.method, surveyMethodLabel(old.method)], ...methods]
             : methods,
         value: old?.method || (s.mode === 'model' ? 'model' : 'manual'),
       },
@@ -532,7 +535,7 @@ export function measurementList(ctx) {
         .reverse()
         .map(
           (o) =>
-            `<button data-act="observation" data-id="${esc(o.id)}" class="dlg-row">${icon('dimension')}<span class="info"><strong>${esc(o.note || measureKinds.find(([k]) => k === o.kind)?.[1] || 'Ölçü')} · ${esc(o.raw)} ${esc(o.unit)}</strong><small>${esc(anchorLabel(p, o.a))} → ${esc(anchorLabel(p, o.b))} · ${esc(methods.find(([k]) => k === o.method)?.[1] || o.method)}${p.observations.some((v) => v.replaces === o.id) ? ' · önceki okuma' : ''}</small></span></button>`,
+            `<button data-act="observation" data-id="${esc(o.id)}" class="dlg-row">${icon('dimension')}<span class="info"><strong>${esc(o.note || measureKinds.find(([k]) => k === o.kind)?.[1] || 'Ölçü')} · ${esc(o.raw)} ${esc(o.unit)}</strong><small>${esc(anchorLabel(p, o.a))} → ${esc(anchorLabel(p, o.b))} · ${esc(surveyMethodLabel(o.method))}${p.observations.some((v) => v.replaces === o.id) ? ' · önceki okuma' : ''}</small></span></button>`,
         )
         .join('') ||
       '<p class="empty">İki ucu planda seçerek veya listeden belirleyerek ilk ölçüyü kaydedin.</p>'

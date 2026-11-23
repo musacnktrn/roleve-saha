@@ -17,6 +17,7 @@ import {
   resolveAnchor,
   roomPoints,
   signedArea,
+  wallInteriorSpans,
   wallEnds,
   wallLength,
 } from './measure.js';
@@ -424,54 +425,37 @@ const elementTypes = new Set([
 const isOpening = (e) => e.type === 'door' || e.type === 'window';
 
 /** Minimum surveyed underside touching a positive-length part of the opening span. */
-export function openingLevels(p, e) {
-  const room = entity(p.rooms, e.roomId, 'Açıklık mahali'),
+export function openingLevels(p, e, roomId = e.roomId) {
+  const room = entity(p.rooms, roomId, 'Açıklık mahali'),
     floor = entity(p.floors, room.floorId, 'Açıklık katı');
+  if (!room.wallIds.includes(e.wallId)) throw new Error('Açıklık bu mahalin duvarında değil.');
   const sill = e.sill ?? null,
     head = sill != null && e.height != null ? sill + e.height : null;
-  let ceiling = room.height ?? null;
+  let ceiling = room.height ?? null, missingWallFace = false;
   const zones = p.zones.filter((z) => z.roomId === room.id && (z.type === 'ceiling' || z.type === 'beam'));
   if (zones.length && e.width > 0) {
-    const [a, b] = wallEnds(p, e.wallId),
-      len = dist(a, b),
-      dx = (b.x - a.x) / len,
-      dy = (b.y - a.y) / len;
-    const point = (x) => ({ x: a.x + x * dx, y: a.y + x * dy });
-    const start = e.offset,
-      end = start + e.width;
-    for (const z of zones) {
-      const cuts = new Set([start, end]);
-      const add = (x) => {
-        if (x > start && x < end) cuts.add(x);
-      };
-      const local = (pt) => ({
-        u: (pt.x - a.x) * dx + (pt.y - a.y) * dy,
-        v: dx * (pt.y - a.y) - dy * (pt.x - a.x),
-      });
-      const ring = z.points.map(local);
-      for (let i = 0; i < ring.length; i++) {
-        const u = ring[i],
-          v = ring[(i + 1) % ring.length];
-        if (Math.abs(u.v) < EPS) add(u.u);
-        if (u.v * v.v < 0) add(u.u + ((v.u - u.u) * -u.v) / (v.v - u.v));
-      }
-      const along = [...cuts].sort((a, b) => a - b);
-      for (let i = 1; i < along.length; i++) {
-        const left = along[i - 1],
-          right = along[i];
-        if (right - left < EPS || !insidePolygon(point((left + right) / 2), z.points)) continue;
-        for (const x of [left, right]) {
-          const h = zoneSurfaceAt(z, point(x));
-          if (h != null) ceiling = ceiling == null ? h : Math.min(ceiling, h);
+    const length = wallLength(p, e.wallId), face = {wallId:e.wallId, roomId, side:'inside'};
+    const point = (station) => resolveAnchor(p, {...face, t:station/length});
+    try {
+      point(0);
+      for (const zone of zones) {
+        for (const [from, to] of wallInteriorSpans(p, roomId, e.wallId, zone.points)) {
+          const left = Math.max(e.offset, from), right = Math.min(e.offset + e.width, to);
+          if (right - left <= EPS) continue;
+          for (const end of [left, right]) {
+            const h = zoneSurfaceAt(zone, point(end));
+            if (h != null) ceiling = ceiling == null ? h : Math.min(ceiling, h);
+          }
         }
       }
+    } catch (error) {
+      if (!(error instanceof UnresolvedGeometry)) throw error;
+      missingWallFace = true;
     }
   }
   return {
-    floorZ: floor.elevation,
-    sill,
-    head,
-    ceiling,
+    floorZ: floor.elevation, sill, head, ceiling,
+    ...(missingWallFace ? { missingWallFace: true } : {}),
     sillZ: sill == null ? null : floor.elevation + sill,
     headZ: head == null ? null : floor.elevation + head,
     ceilingZ: ceiling == null ? null : floor.elevation + ceiling,
@@ -1152,9 +1136,14 @@ export function normalizeProject(input) {
   return validateProject(p);
 }
 export function projectChecks(p) {
+  const roomsByWall = new Map();
   const out = [],
     replaced = new Set(p.observations.map((o) => o.replaces).filter(Boolean));
   for (const r of p.rooms) {
+    for (const wallId of r.wallIds) {
+      if (!roomsByWall.has(wallId)) roomsByWall.set(wallId, []);
+      roomsByWall.get(wallId).push(r);
+    }
     const base = { roomId: r.id, floorId: r.floorId, status: 'open' };
     if (r.height == null)
       out.push({
@@ -1206,22 +1195,26 @@ export function projectChecks(p) {
         });
     }
   }
+  const unresolvedFaces = new Set();
   for (const opening of p.elements.filter(isOpening)) {
-    const { head, ceiling } = openingLevels(p, opening);
-    if (head != null && ceiling != null && head > ceiling + EPS) {
+    for (const room of roomsByWall.get(opening.wallId) || []) {
+      const { head, ceiling, missingWallFace } = openingLevels(p, opening, room.id);
+      const faceId = room.id + '-' + opening.wallId;
+      if (missingWallFace && !unresolvedFaces.has(faceId)) {
+        unresolvedFaces.add(faceId);
+        out.push({
+          id: 'opening-face-' + faceId, kind: 'opening-face', status: 'open',
+          roomId: room.id, wallId: opening.wallId,
+          message: 'Bu yüzde açıklıklarla kiriş ve tavan bölgelerini karşılaştırmak için duvar kalınlığını ölç.',
+        });
+      }
+      if (head == null || ceiling == null || head <= ceiling + EPS) continue;
       out.push({
-        id: 'opening-head-' + opening.id,
-        roomId: opening.roomId,
-        wallId: opening.wallId,
-        elementId: opening.id,
-        kind: 'opening-head',
-        status: 'conflict',
-        difference: head - ceiling,
-        message:
-          opening.name +
-          ' lentosu ölçülen tavan veya kiriş altını ' +
-          formatLength(head - ceiling, 'mm') +
-          ' mm aşıyor.',
+        id: 'opening-head-' + opening.id + (room.id === opening.roomId ? '' : '-' + room.id),
+        roomId: room.id, wallId: opening.wallId, elementId: opening.id,
+        kind: 'opening-head', status: 'conflict', difference: head - ceiling,
+        message: opening.name + ' lentosu ' + room.name + ' tarafında tavan veya kiriş altını ' +
+          formatLength(head - ceiling, 'mm') + ' mm aşıyor.',
       });
     }
   }

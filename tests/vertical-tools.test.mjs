@@ -1,0 +1,58 @@
+// [codex] ureten: codex
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as G from '../geometry/core.js';
+import { wallInteriorSpans } from '../geometry/measure.js';
+import {verticalIssues, verticalToolbar} from '../ui/vertical-tools.js';
+test('Ortak duvarda açıklık, her iki mahalin gerçek bitmiş yüzüyle karşılaştırılır',()=>{
+  const p=G.createProject();
+  const room=G.addRoom(p,{name:'Oda',height:3200,points:G.templatePoints('rect',4000,3000)});
+  const wallId=room.wallIds[1], wall=p.walls.find(w=>w.id===wallId);
+  const hall=G.addAdjacentRoom(p,{roomId:room.id,wallId,depth:3000,name:'Hol',height:3200});
+  wall.thickness=160;
+  const door=G.addElement(p,{roomId:room.id,wallId,type:'door',name:'Ortak kapı',offset:400,width:900,sill:0,height:2100});
+  const ring=G.templatePoints('rect',240,1150,{x:4160,y:400});
+  const beam=G.addZone(p,{roomId:hall.id,type:'beam',name:'Hol kirişi',points:ring,bottom:1700,top:2200});
+  assert.deepEqual(wallInteriorSpans(p,hall.id,wallId,ring),[[400,1550]]);
+  assert.deepEqual(wallInteriorSpans(p,hall.id,wallId,[...ring].reverse()),[[400,1550]]);
+  assert.deepEqual(wallInteriorSpans(p,hall.id,wallId,G.templatePoints('rect',160,1150,{x:4000,y:400})),[]);
+  assert.equal(G.openingLevels(p,door,room.id).ceiling,3200);
+  assert.equal(G.openingLevels(p,door,hall.id).ceiling,1700);
+  const flagged=G.projectChecks(p).filter(v=>v.elementId===door.id&&v.kind==='opening-head');
+  assert.deepEqual(flagged.map(v=>[v.roomId,v.difference]),[[hall.id,400]]);
+  beam.points=G.templatePoints('rect',300,500,{x:4160,y:1300});
+  assert.equal(G.openingLevels(p,door,hall.id).ceiling,3200,'Açıklığa yalnız tek noktada değen kiriş düşey sınır üretmez');
+  beam.points=ring;
+  wall.thickness=null;
+  assert.deepEqual(wallInteriorSpans(p,hall.id,wallId,ring),[]);
+  assert.equal(G.openingLevels(p,door,hall.id).missingWallFace,true);
+  assert.ok(verticalIssues(p,room.floorId).some(v=>v.kind==='wall'&&v.id===wallId&&v.roomId===hall.id));
+  assert.equal(door.roomId,room.id);
+});
+test('Ölçülmemiş tavanın düzlem koordinatı kalır, düşey veya 3B mesafe üretmez',()=>{
+  const p=G.createProject(), f=G.addFloor(p,{name:'Üst kat',elevation:3200});
+  const a={x:50,y:50,floorId:f.id}, b={x:150,y:50,floorId:f.id,z:null,unmeasuredZ:true};
+  assert.equal(G.resolveAnchor(p,a).z,3200);
+  assert.equal(G.resolveAnchor(p,b).z,undefined);
+  assert.equal(G.measure(p,a,b,'plan'),100);
+  assert.throws(()=>G.measure(p,a,b,'vertical'),/kot/);
+  assert.throws(()=>G.measure(p,a,b,'spatial'),/kot/);
+  assert.equal(G.measure(p,a,{...b,z:5900},'vertical'),2700);
+});
+test('Düşey kontrol kat kapsamını, eksik açıklığı ve kiriş-lento çelişkisini ayrı tutar',()=>{
+  const p=G.createProject(), f=G.addFloor(p,{name:'Üst kat',elevation:3200});
+  const upper=G.addRoom(p,{name:'Salon',floorId:f.id,points:G.templatePoints('rect',6000,4000)});
+  const ground=G.addRoom(p,{name:'Alt oda',points:G.templatePoints('rect',4000,3000)});
+  const incomplete=G.addElement(p,{roomId:upper.id,wallId:upper.wallIds[0],type:'window',offset:300,width:900});
+  const known=G.addElement(p,{roomId:upper.id,wallId:upper.wallIds[0],type:'door',offset:2300,width:800,sill:0,height:2300});
+  const beam=G.addZone(p,{roomId:upper.id,type:'beam',name:'Kiriş 1',bottom:2150,top:2500,points:G.templatePoints('rect',800,500,{x:2400,y:0})});
+  const ceiling=G.addZone(p,{roomId:upper.id,type:'ceiling',name:'Tavan A',points:G.templatePoints('rect',600,500,{x:4000,y:0}),bottom:null,top:null});
+  const findings=verticalIssues(p,f.id);
+  assert.ok(findings.some(v=>v.kind==='room'&&v.id===upper.id));
+  assert.ok(findings.some(v=>v.id===incomplete.id && v.text.includes('parapet')));
+  assert.ok(findings.some(v=>v.id===known.id && v.text.includes('150')));
+  assert.ok(findings.some(v=>v.id===ceiling.id && v.text.includes('alt kot')));
+  assert.ok(!findings.some(v=>v.id===beam.id || v.roomId===ground.id));
+  assert.match(verticalToolbar(p,{floorId:f.id,roomId:upper.id,mode:'elevation'}),/Ölçü gir/);
+  assert.equal(verticalToolbar(p,{floorId:f.id,roomId:ground.id,mode:'elevation'}),'');
+});
