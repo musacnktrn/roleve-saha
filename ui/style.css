@@ -879,6 +879,16 @@ p {
   stroke-width: 14;
   pointer-events: none;
 }
+.node-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 18px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: grab;
+}
+.node-handle.selected { fill: #c7df93; }
+.wall-line small { display: block; margin-top: 2px; font-size: 0.72rem; font-weight: 400; color: #526653; }
 .node-handle {
   fill: #f6fae9;
   stroke: #678347;

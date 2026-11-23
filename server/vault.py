@@ -20,6 +20,7 @@ MAX_JSON = 24 * 1024 * 1024
 MAX_MEDIA = 40 * 1024 * 1024
 MAX_PROJECT_MEDIA = 256 * 1024 * 1024
 CHUNK = 256 * 1024
+IMAGE_HEADER_BYTES = 128 * 1024
 MAX_STAGING = 2 * MAX_PROJECT_MEDIA
 TYPES = {
     "image/jpeg",
@@ -124,20 +125,37 @@ def image_type_matches(typ, header):
         return header.startswith(b"RIFF") and header[8:12] == b"WEBP"
     if typ not in ("image/avif", "image/heif", "image/heic"):
         return True
-    if header[4:8] != b"ftyp" or len(header) < 16:
+    start = 0
+    while start + 8 <= len(header):
+        size = int.from_bytes(header[start:start+4], "big")
+        kind = header[start+4:start+8]
+        body = start + 8
+        if size == 1:
+            if body + 8 > len(header):
+                return False
+            size = int.from_bytes(header[body:body+8], "big")
+            body += 8
+        end = start + size if size else len(header)
+        if end > len(header) or end < body:
+            return False
+        if kind == b"ftyp":
+            if end - body < 8 or (end - body) % 4:
+                return False
+            brands = {header[body:body+4]}
+            brands.update(header[i:i+4] for i in range(body+8, end, 4))
+            break
+        if kind not in (b"free", b"skip", b"wide"):
+            return False
+        start = end
+    else:
         return False
-    size = int.from_bytes(header[:4], "big")
-    if size < 16:
-        return False
-    brands = {header[8:12]}
-    brands.update(header[i : i + 4] for i in range(16, min(size, len(header)) - 3, 4))
     avif = {b"avif", b"avis"}
     heic = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs"}
     if typ == "image/avif":
         return bool(brands & avif)
     if typ == "image/heic":
         return bool(brands & heic)
-    return bool(brands & (heic | {b"mif1", b"msf1"}))
+    return bool(brands & (heic | avif | {b"heif", b"mif1", b"miaf", b"msf1"}))
 
 
 class Vault:
@@ -629,8 +647,8 @@ class Vault:
                 )
             for key, (size, types) in refs.items():
                 complete = db.execute(
-                    "SELECT length(body),substr(body,1,4096) FROM media WHERE project=? AND hash=?",
-                    (pid, key),
+                    "SELECT length(body),substr(body,1,?) FROM media WHERE project=? AND hash=?",
+                    (IMAGE_HEADER_BYTES, pid, key),
                 ).fetchone()
                 if complete:
                     require(complete[0] == size, "Dosya boyutu uyuşmuyor.")
@@ -655,7 +673,7 @@ class Vault:
                     "Dosya bütünlüğü doğrulanamadı.",
                 )
                 require(
-                    all(image_type_matches(typ, body[:4096]) for typ in types),
+                    all(image_type_matches(typ, body[:IMAGE_HEADER_BYTES]) for typ in types),
                     "Fotoğraf dosyasının türü uyuşmuyor.",
                 )
                 db.execute("INSERT INTO media VALUES (?,?,?)", (pid, key, body))

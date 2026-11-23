@@ -12,7 +12,7 @@ def build(target):
         files.extend(f for f in sorted((ROOT / directory).rglob('*'))
                      if f.is_file() and 'tests' not in f.relative_to(ROOT).parts
                      and not any(part.startswith('.') for part in f.relative_to(ROOT).parts)
-                     and (f.suffix in {'.js','.mjs','.css','.svg','.woff2','.png','.txt'} or f.name=='LICENSE'))
+                     and (f.suffix in {'.js','.mjs','.css','.svg','.woff2','.png','.wasm','.txt'} or f.name=='LICENSE'))
     digest = hashlib.sha256()
     for f in files:
         relative=f.relative_to(ROOT)

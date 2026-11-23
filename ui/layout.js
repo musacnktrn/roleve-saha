@@ -1,7 +1,7 @@
 /* [codex] ureten: codex */
 import { esc, icon, button, ib, num, metre, dateText } from './base.js';
 import { roomArea, roomPoints, wallLength } from '../geometry/core.js';
-import { wallName, roomColor, planMarkup, padded, viewStr } from './plan.js';
+import { wallName, roomColor, planMarkup, padded, viewStr, currentWallReadings, readingMethod } from './plan.js';
 export const modes = [
   ['plan', 'Plan', 'plan'],
   ['elevation', 'Görünüş', 'wall'],
@@ -121,9 +121,16 @@ function inspector(p, s) {
     els = r ? p.elements.filter((e) => e.roomId === r.id || r.wallIds.includes(e.wallId)) : [],
     zones = p.zones.filter((z) => z.roomId === r?.id),
     e = p.elements.find((e) => e.id === s.elementId);
+  const readings = currentWallReadings(p);
+  function wallRow(id, i) {
+    const reading = readings.get(id);
+    const source = reading ? readingMethod(reading.method).label : 'Çizim';
+    const value = reading ? `${reading.raw} ${reading.unit}` : metre(wallLength(p, id));
+    return `<button data-act="wall" data-id="${esc(id)}" class="wall-line ${w?.id === id ? 'active' : ''}"><span class="wall-letter">${wallName(i)}</span><span>Duvar ${wallName(i)}<small>${source}</small></span><b>${esc(value)}</b></button>`;
+  }
   let body = r
     ? `<div class="room-kicker"><span class="code-tag">${esc(r.code)}</span><span>Seçili mahal</span></div><h2>${esc(r.name)}</h2><div class="stat-grid">${stat('Net alan', num(roomArea(p, r.id) / 1e6, 2) + ' m²')}${stat('Tavan', metre(r.height))}</div>${button('edit-room', 'Mahal özellikleri', 'settings', 'text-btn small')}
-    <section><div class="group-title"><h3>Duvarlar</h3><span class="count">${r.wallIds.length}</span></div><div class="wall-list">${r.wallIds.map((id, i) => `<button data-act="wall" data-id="${esc(id)}" class="wall-line ${w?.id === id ? 'active' : ''}"><span class="wall-letter">${wallName(i)}</span><span>Duvar ${wallName(i)}</span><b>${metre(wallLength(p, id))}</b></button>`).join('')}</div></section>`
+    <section><div class="group-title"><h3>Duvarlar</h3><span class="count">${r.wallIds.length}</span></div><div class="wall-list">${r.wallIds.map(wallRow).join('')}</div></section>`
     : `<div class="empty">Başlamak için bir mahal seçin.</div>`;
   if (w && r) {
     const i = r.wallIds.indexOf(w.id);
@@ -172,7 +179,7 @@ export function layout(p, s) {
         '',
       )}${ib('add-note', 'Saha notu ekle', 'note')}${ib('camera', 'Fotoğraf çek veya ekle', 'camera')}</div>
     ${s.mode === 'section' ? '<div class="section-tools">' + button('section-manager', (p.sections || []).find((v) => v.id === s.sectionId)?.name || 'Kesit çizgisi', 'section', 'secondary') + button('section-openings', 'Kapı ve pencereler', 'door', 'secondary') + '</div>' : ''}
-    <div id="tool-hint"></div><div class="canvas-bottom"><div class="scale-mark" aria-label="Ölçek"><span id="scale-text">1 m</span><i></i></div><div class="zoom">${s.mode === 'model' ? ib('rotate-left', 'Modeli sola döndür', 'left') + ib('rotate-right', 'Modeli sağa döndür', 'rotate') : ''}${ib('zoom-out', 'Uzaklaştır', 'minus')}<span id="zoom-text">100%</span>${ib('zoom-in', 'Yakınlaştır', 'plus')}${ib('fit', 'Çizime sığdır', 'fit')}</div></div></div>
+    <div id="tool-hint" aria-live="polite"></div><div class="canvas-bottom"><div class="scale-mark" aria-label="Ölçek"><span id="scale-text">1 m</span><i></i></div><div class="zoom">${s.mode === 'model' ? ib('rotate-left', 'Modeli sola döndür', 'left') + ib('rotate-right', 'Modeli sağa döndür', 'rotate') : ''}${ib('zoom-out', 'Uzaklaştır', 'minus')}<span id="zoom-text">100%</span>${ib('zoom-in', 'Yakınlaştır', 'plus')}${ib('fit', 'Çizime sığdır', 'fit')}</div></div></div>
     <div class="canvas-status"><span>${icon('select', 13)}${esc(s.mode === 'model' && s.tool === 'select' ? 'Sürükle · döndür' : toolLabel[s.tool] || 'Seçim')}</span><span>${s.mode === 'plan' ? num(p.rooms.filter((r) => r.floorId === s.floorId).length) + ' mahal' : esc(modes.find((m) => m[0] === s.mode)?.[1])} · ${esc(p.unit)}</span></div></main>${inspector(p, s)}</div>
     ${s.mobilePanel ? '<button class="panel-scrim" aria-label="Paneli kapat" data-act="close-panel"></button>' : ''}`
   );

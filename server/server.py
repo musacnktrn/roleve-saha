@@ -235,6 +235,7 @@ class Handler(BaseHTTPRequestHandler):
             ".jpg",
             ".webp",
             ".webmanifest",
+            ".wasm",
         }
         resolved_parts = (
             file.relative_to(self.server.static).parts
@@ -257,6 +258,8 @@ class Handler(BaseHTTPRequestHandler):
         mime = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
         if file.suffix in (".js", ".mjs"):
             mime = "text/javascript"
+        if file.suffix == ".wasm":
+            mime = "application/wasm"
         if file.suffix == ".webmanifest":
             mime = "application/manifest+json"
         self.send_body(200, file.read_bytes(), mime)

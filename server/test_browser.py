@@ -19,9 +19,10 @@ DEVICES = {"device-a", "device-b", "device-c", "device-legacy", "device-v2"}
 MODULES = {
     "storage": {"store.js", "local.js", "media.js", "merge.js", "actions.js"},
     "geometry": {"core.js", "measure.js"},
-    "ui": {"dialog.js", "base.js", "sections.js"},
+    "ui": {"dialog.js", "base.js", "sections.js", "photo-import.js"},
     "openings": {"drawing.js"},
     "photo": {"annotations.js"},
+    "photo/codec": {"format.js"},
 }
 
 
@@ -64,11 +65,11 @@ def main():
             parts = path.strip("/").split("/")
             if (
                 self.command == "GET"
-                and len(parts) == 3
+                and len(parts) in (3, 4)
                 and parts[0] in DEVICES
-                and parts[2] in MODULES.get(parts[1], ())
+                and parts[-1] in MODULES.get("/".join(parts[1:-1]), ())
             ):
-                module = HERE.parent / parts[1] / parts[2]
+                module = HERE.parent.joinpath(*parts[1:])
                 return self.send_body(200, module.read_bytes(), "text/javascript")
             if path == "/" + key + "/result" and self.command == "POST":
                 data = self.json_body(8192)

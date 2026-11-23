@@ -5,6 +5,19 @@ export function bearingOnPlan(a, b) {
   if (Math.hypot(b.x - a.x, b.y - a.y) < 1) throw Error('Çekim noktası ve bakılan nokta farklı olmalı.');
   return (Math.round((((Math.atan2(b.x - a.x, a.y - b.y) * 180) / Math.PI + 360) % 360) * 100) / 100) % 360;
 }
+// Use screen-sized guides at every zoom. Bearings are relative to the top of the plan.
+export function photoAimMarkup(camera, target, scale) {
+  const px = 1 / Math.max(0.000001, Math.abs(scale));
+  const delta = target && { x: target.x - camera.x, y: target.y - camera.y };
+  const length = delta ? Math.hypot(delta.x, delta.y) / px : 0;
+  let ray = '<circle r="23" fill="none" stroke="#287867" stroke-width="1.5" stroke-dasharray="3 4"/><path d="M0 -28v6m0 44v6m-28 -28h6m44 0h6" fill="none" stroke="#20564c" stroke-width="2"/>';
+  if (length >= 1 && Math.hypot(delta.x, delta.y) >= 1) {
+    const angle = bearingOnPlan(camera, target);
+    const tip = Math.min(11, length * 0.5);
+    ray = `<g data-bearing="${angle}" transform="rotate(${angle})"><path d="M0 0L0 ${-length}" stroke="white" stroke-width="5"/><path d="M0 0L0 ${-length}" stroke="#165c4c" stroke-width="2.5"/><path d="M0 ${-length}l${-tip/2} ${tip}h${tip}Z" fill="#165c4c"/></g>`;
+  }
+  return `<g class="photo-aim" pointer-events="none" aria-hidden="true" transform="translate(${camera.x} ${camera.y}) scale(${px})">${ray}<circle r="8" fill="#205e50" stroke="#fff" stroke-width="2"/><circle r="2.4" fill="#fff"/></g>`;
+}
 export function photoViewPoint(p, floorId, point, target = {}, fallbackRoomId = null) {
   const element = p.elements.find((v) => v.id === target.element),
     wallId = target.wall || element?.wallId || null;

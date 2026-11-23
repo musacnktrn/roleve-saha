@@ -6,6 +6,33 @@ import { esc, num, safePhoto } from './base.js';
 const colors = ['#f4f2e9', '#e9eeea', '#f4eddf', '#e3eae9', '#f2f0e4', '#ece9e8'];
 export const roomColor = (i) => colors[Math.max(0, i) % colors.length];
 export const wallName = (i) => (i < 26 ? String.fromCharCode(65 + i) : String(i + 1));
+const wallPair = (a, b) => JSON.stringify(a < b ? [a,b] : [b,a]);
+const readingMethods = new Map([
+  ['manual', {label:'Saha ölçüsü · Şerit metre', priority:3}],
+  ['tape', {label:'Saha ölçüsü · Şerit metre', priority:3}],
+  ['laser', {label:'Saha ölçüsü · Lazer', priority:3}],
+  ['iphone', {label:'Telefon ölçümü', priority:3}],
+  ['scan', {label:'Tarama', priority:3}],
+  ['estimate', {label:'Tahmin', priority:2}],
+  ['model', {label:'Modelden hesap', priority:1}],
+]);
+export const readingMethod = method => readingMethods.get(method) ?? {label:'Yöntem belirtilmemiş', priority:0};
+function readingPair(o) {
+  return ['wall','plan','distance'].includes(o.kind) && o.a?.nodeId && o.b?.nodeId ? wallPair(o.a.nodeId,o.b.nodeId) : null;
+}
+export function currentWallReadings(p) {
+  const byWall = new Map();
+  const walls = new Map(p.walls.map(w => [wallPair(w.a,w.b), w]));
+  const superseded = new Set(p.observations.map(o => o.replaces));
+  for (const o of p.observations) {
+    if (superseded.has(o.id)) continue;
+    const w = walls.get(readingPair(o));
+    if (!w || (o.wallId && w.id !== o.wallId)) continue;
+    const prior = byWall.get(w.id);
+    if (!prior || readingMethod(o.method).priority >= readingMethod(prior.method).priority) byWall.set(w.id, o);
+  }
+  return byWall;
+}
 export function boxOf(points) {
   if (!points.length) return { x: 0, y: 0, w: 6200, h: 4100 };
   let x = Infinity,
@@ -107,6 +134,7 @@ export function planMarkup(p, s, mini = false) {
     parts = [],
     labels = [],
     handles = [],
+    corners = [],
     under = [];
   const b = boxOf(points);
   for (const r of rooms) for (const id of r.wallIds) shared.set(id, (shared.get(id) || 0) + 1);
@@ -202,21 +230,25 @@ export function planMarkup(p, s, mini = false) {
       r.nodeIds.forEach((id) => {
         const v = node.get(id);
         if (v)
-          handles.push(`<circle data-node="${esc(id)}" cx="${v.x}" cy="${v.y}" r="59" class="node-handle"/>`);
+          corners.push(`<g data-node="${esc(id)}">${s.tool === 'select' ? `<circle class="node-hit" cx="${v.x}" cy="${v.y}" r="59"/>` : ''}<circle data-node="${esc(id)}" cx="${v.x}" cy="${v.y}" r="59" class="node-handle${id === s.nodeId ? ' selected' : ''}"/></g>`);
       });
   }
   if (!mini && s.showNotes !== false)
     for (const n of p.notes.filter((n) => n.floorId === s.floorId)) handles.push(photoPin(n));
   for (const st of p.strokes || []) if (st.floorId === s.floorId) handles.push(strokeMarkup(st));
   const superseded = new Set(p.observations.map((o) => o.replaces).filter(Boolean));
+  const currentByPair = !mini && s.showDims !== false && s.anchorFn
+    ? new Map(Array.from(currentWallReadings(p).values(), reading => [readingPair(reading), reading.id])) : new Map();
   if (!mini && s.showDims !== false && s.anchorFn)
     for (const o of p.observations.filter((o) => o.floorId === s.floorId && !superseded.has(o.id))) {
       try {
+        const current = currentByPair.get(readingPair(o));
+        if (current && current !== o.id) continue;
         const a = s.anchorFn(p, o.a),
           v = s.anchorFn(p, o.b);
         if (!a || !v) continue;
         handles.push(
-          `<g class="obs-guide" data-obs="${esc(o.id)}"><path d="M${a.x} ${a.y}L${v.x} ${v.y}"/>${label((a.x + v.x) / 2, (a.y + v.y) / 2 - 115, `${num(o.value / 1000, 3)} m`, 'obs-label')}</g>`,
+          `<g class="obs-guide" data-obs="${esc(o.id)}"><path d="M${a.x} ${a.y}L${v.x} ${v.y}"/>${label((a.x + v.x) / 2, (a.y + v.y) / 2 - 115, `${o.raw} ${o.unit}`, 'obs-label')}</g>`,
         );
       } catch {}
     }
@@ -256,7 +288,7 @@ export function planMarkup(p, s, mini = false) {
       parts.join('') +
       sectionOverlay(cut) +
       labels.join('') +
-      handles.join('') +
+      (s.tool === 'select' ? handles.concat(corners) : corners.concat(handles)).join('') +
       (mini ? '' : '</g><g id="draft-layer" pointer-events="none"></g>'),
     bounds: extent,
   };

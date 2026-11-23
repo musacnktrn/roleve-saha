@@ -1,10 +1,11 @@
 /* [codex] ureten: codex */
 import { pairs } from './plan.js';
-export function asWorld(svg, x, y) {
+import { beginCornerDrag, draggedCorner } from './corner-drag.js';
+export function asWorld(svg, x, y, rounded = true) {
   const m = svg.getScreenCTM();
   if (!m) return { x: 0, y: 0 };
   const v = new DOMPoint(x, y).matrixTransform(m.inverse());
-  return { x: Math.round(v.x), y: Math.round(v.y) };
+  return rounded ? { x: Math.round(v.x), y: Math.round(v.y) } : { x: v.x, y: v.y };
 }
 export function zoomBox(v, f, anchor = { x: v.x + v.w / 2, y: v.y + v.h / 2 }) {
   const w = Math.min(2e7, Math.max(350, v.w * f)),
@@ -21,7 +22,22 @@ export function targetAt(el) {
 }
 export function wireCanvas(
   svg,
-  { onTap, onDragNode, onInk, onZoom, getTool, getBox, setBox, pencilOnly, onPen, previewInk },
+  {
+    onTap,
+    onDragNode,
+    onInk,
+    onZoom,
+    getTool,
+    getBox,
+    setBox,
+    pencilOnly,
+    onPen,
+    previewInk,
+    getProject,
+    getPhotoStart,
+    onPhotoPreview,
+    onPhotoDrag,
+  },
 ) {
   const down = new Map();
   let session = null,
@@ -63,14 +79,27 @@ export function wireCanvas(
     lens?.remove();
     lens = null;
   }
-  const clear = () => {
+  let photoPreview = false;
+  function previewPhoto(start, end) {
+    photoPreview = true;
+    onPhotoPreview?.(start, end);
+  }
+  function clearPreview() {
     hideLens();
+    session?.corner?.restore();
+    if (photoPreview) {
+      photoPreview = false;
+      onPhotoPreview?.(null, null);
+    }
+    svg.querySelector('#gesture')?.remove();
+  }
+  const clear = () => {
+    clearPreview();
     down.clear();
     session = null;
     ink = null;
     pinch = null;
     pen = false;
-    svg.querySelector('#gesture')?.remove();
   };
   const guide = (pts) => {
     const style = previewInk?.(pts, session?.tool);
@@ -91,12 +120,13 @@ export function wireCanvas(
   };
   svg.onpointerdown = (e) => {
     if (e.button !== 0 && e.button !== 1) return;
-    if (e.pointerType === 'touch' && pen) return;
+    if (e.pointerType !== 'pen' && pen) return;
     if (e.pointerType === 'pen') {
       clear();
       pen = true;
       onPen?.();
     }
+    if (pinch || down.size >= 2 || !svg.getScreenCTM()) return;
     const at = loc(e);
     down.set(e.pointerId, at);
     const target = targetAt(e.target);
@@ -110,10 +140,9 @@ export function wireCanvas(
         mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
         v: { ...getBox() },
       };
+      clearPreview();
       session = null;
       ink = null;
-      hideLens();
-      svg.querySelector('#gesture')?.remove();
       return;
     }
     session = {
@@ -125,13 +154,28 @@ export function wireCanvas(
       v: { ...getBox() },
       moved: false,
     };
-    if (e.button === 1 || (e.pointerType === 'touch' && pencilOnly())) session.tool = 'pan';
+    const direct = session.tool === 'photoLocate' || (session.tool === 'select' && target.node);
+    if (e.button === 1 || (e.pointerType === 'touch' && pencilOnly() && !direct)) session.tool = 'pan';
+    if (session.tool === 'select' && target.node) {
+      session.corner = beginCornerDrag(svg, getProject?.(), target.node);
+      if (session.corner) session.world = asWorld(svg, at.x, at.y, false);
+    }
+    if (session.tool === 'photoLocate') {
+      session.photoStart = getPhotoStart?.() ?? null;
+      previewPhoto(session.photoStart || session.world, session.photoStart ? session.world : null);
+    }
     if (['ink', 'erase'].includes(session.tool))
       ink = [{ ...session.world, pressure: e.pointerType === 'pen' && e.pressure ? e.pressure : null }];
     else if (session.tool !== 'pan') magnify(e);
   };
   svg.onpointermove = (e) => {
-    if (!down.has(e.pointerId)) return;
+    if (!down.has(e.pointerId)) {
+      if (!down.size && !pinch && getTool() === 'photoLocate' && ['mouse', 'pen'].includes(e.pointerType)) {
+        const from = getPhotoStart?.();
+        if (from && svg.getScreenCTM()) previewPhoto(from, asWorld(svg, e.clientX, e.clientY));
+      }
+      return;
+    }
     down.set(e.pointerId, loc(e));
     if (pinch && down.size === 2) {
       const [a, b] = [...down.values()],
@@ -158,7 +202,7 @@ export function wireCanvas(
       dy = e.clientY - session.at.y;
     if (Math.hypot(dx, dy) > 4) session.moved = true;
     if (!session.moved) return;
-    const world = asWorld(svg, e.clientX, e.clientY);
+    const world = asWorld(svg, e.clientX, e.clientY, !session.corner);
     if (['ink', 'erase'].includes(session.tool)) {
       const points = e.getCoalescedEvents?.() || [];
       for (const event of points) {
@@ -170,11 +214,16 @@ export function wireCanvas(
       ink.push({ ...world, pressure: e.pointerType === 'pen' && e.pressure ? e.pressure : null });
       guide(ink);
     } else if (['draw', 'zone', 'sectionline'].includes(session.tool)) guide([session.world, world]);
-    else if (session.target.node && session.tool === 'select') guide([session.world, world]);
+    else if (session.tool === 'photoLocate') previewPhoto(session.photoStart || session.world, world);
+    else if (session.corner)
+      session.corner.show(draggedCorner(session.corner.origin, session.world, world));
     else if (session.tool === 'pan' || session.tool === 'select') {
       const m = svg.getScreenCTM();
       if (m) setBox({ ...session.v, x: session.v.x - dx / m.a, y: session.v.y - dy / m.d });
     }
+  };
+  svg.onpointerleave = () => {
+    if (!down.size && photoPreview) clearPreview();
   };
   svg.onpointercancel = (e) => {
     if (down.has(e.pointerId)) clear();
@@ -191,8 +240,14 @@ export function wireCanvas(
     }
     const s = session;
     if (!s || s.pointer !== e.pointerId) return;
-    const world = asWorld(svg, e.clientX, e.clientY),
+    if (svg.isConnected === false || !svg.getScreenCTM()) {
+      clear();
+      return;
+    }
+    const world = asWorld(svg, e.clientX, e.clientY, !s.corner),
       stroke = ink;
+    s.moved ||= Math.hypot(e.clientX - s.at.x, e.clientY - s.at.y) > 4;
+    const endTarget = () => targetAt(svg.ownerDocument.elementFromPoint(e.clientX, e.clientY));
     clear();
     if (
       ['ink', 'erase'].includes(s.tool) &&
@@ -204,15 +259,17 @@ export function wireCanvas(
       onInk(stroke);
       return;
     }
-    if (s.tool === 'select' && s.target.node && s.moved) {
-      onDragNode(s.target.node, world);
+    if (s.corner && s.moved) {
+      onDragNode(s.target.node, draggedCorner(s.corner.origin, s.world, world));
       return;
     }
-    if (
-      s.moved &&
-      ['draw', 'zone', 'measure', 'notePin', 'photoLocate', 'calibrate', 'sectionline'].includes(s.tool)
-    ) {
-      onTap(world, targetAt(document.elementFromPoint(e.clientX, e.clientY)), e);
+    if (s.tool === 'photoLocate') {
+      if (s.moved && !s.photoStart && onPhotoDrag) onPhotoDrag(s.world, s.target, world, endTarget());
+      else onTap(world, s.moved ? endTarget() : s.target, e);
+      return;
+    }
+    if (s.moved && ['draw', 'zone', 'measure', 'notePin', 'calibrate', 'sectionline'].includes(s.tool)) {
+      onTap(world, endTarget(), e);
       return;
     }
     if (!s.moved && s.tool !== 'pan' && s.tool !== 'ink') onTap(world, s.target, e);

@@ -1,5 +1,6 @@
 /* [codex] Content-addressed media. All limits apply to decoded bytes. */
 import { StoreError } from './local.js';
+import { HEADER_BYTES, sniffImage } from '../photo/codec/format.js';
 
 export const CHUNK = 256 * 1024;
 export const MAX_MEDIA = 40 * 1024 * 1024;
@@ -53,22 +54,9 @@ function decode64(body) {
 }
 function checkImageType(type, bytes) {
   if (!type.startsWith('image/')) return;
-  const text = (i, count) => String.fromCharCode(...bytes.subarray(i, i + count));
-  let ok = false;
-  if (type === 'image/jpeg') ok = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  else if (type === 'image/png') ok = text(0, 8) === '\x89PNG\r\n\x1a\n';
-  else if (type === 'image/gif') ok = ['GIF87a', 'GIF89a'].includes(text(0, 6));
-  else if (type === 'image/webp') ok = text(0, 4) === 'RIFF' && text(8, 4) === 'WEBP';
-  else if (bytes.length >= 16 && text(4, 4) === 'ftyp') {
-    const end = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0);
-    const brands = [text(8, 4)];
-    for (let i = 16; i + 4 <= Math.min(end, bytes.length, 4096); i += 4) brands.push(text(i, 4));
-    const heic = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs'];
-    const expected =
-      type === 'image/avif' ? ['avif', 'avis'] : type === 'image/heic' ? heic : [...heic, 'mif1', 'msf1'];
-    ok = end >= 16 && brands.some((b) => expected.includes(b));
-  }
-  if (!ok) invalid('Fotoğrafın dosya türü ve içeriği uyuşmuyor.');
+  const actual = sniffImage(bytes.subarray(0, HEADER_BYTES));
+  const genericHeif = type === 'image/heif' && (actual === 'image/heic' || actual === 'image/avif');
+  if (actual !== type && !genericHeif) invalid('Fotoğrafın dosya türü ve içeriği uyuşmuyor.');
 }
 function metadataFits(doc) {
   if (new TextEncoder().encode(JSON.stringify(doc)).length > MAX_METADATA)

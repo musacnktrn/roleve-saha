@@ -262,16 +262,18 @@ export const surfaces = {
 };
 export function noteForm(ctx, existing = null, newAnchor = null, opts = {}) {
   const { p, s, room, wall } = ctx,
+    initialRoom = opts.target ? opts.target.roomId : (existing?.roomId ?? room?.id),
+    initialWall = opts.target ? opts.target.wallId : (existing?.wallId ?? wall?.id),
     allRooms = [['', 'Genel not'], ...p.rooms.map((r) => [r.id, `${r.code} · ${r.name}`])];
   form(
     opts.photoFirst ? 'Saha fotoğrafı' : existing ? 'Notu düzenle' : 'Saha notu',
     [
-      { key: 'roomId', label: 'Mahal', choices: allRooms, value: existing?.roomId ?? room?.id ?? '' },
+      { key: 'roomId', label: 'Mahal', choices: allRooms, value: initialRoom ?? '' },
       {
         key: 'wallId',
         label: 'Duvar',
         choices: [['', 'Genel'], ...(room?.wallIds || []).map((v, i) => [v, 'Duvar ' + wallName(i)])],
-        value: existing?.wallId || wall?.id || '',
+        value: initialWall || '',
       },
       {
         key: 'side',
@@ -322,7 +324,7 @@ export function noteForm(ctx, existing = null, newAnchor = null, opts = {}) {
         key: 'surface',
         label: 'Hangi yüz çekildi?',
         choices: Object.entries(surfaces),
-        value: existing?.surface || opts.surface || 'general',
+        value: opts.surface || existing?.surface || 'general',
       },
       {
         key: 'direction',
@@ -338,7 +340,7 @@ export function noteForm(ctx, existing = null, newAnchor = null, opts = {}) {
         number: true,
         value: existing?.gps?.longitude ?? '',
       },
-      { key: 'photo', label: 'Galeriden veya dosyadan seç', type: 'file', full: true },
+      { key: 'photo', label: 'Galeriden veya dosyadan seç', type: 'file', accept: 'image/*,.heic,.heif,.avif', full: true },
       ...(opts.photoFirst
         ? [{ key: 'camera', label: 'Kamerayla çek', type: 'file', capture: true, full: true }]
         : []),
@@ -396,8 +398,8 @@ export function noteForm(ctx, existing = null, newAnchor = null, opts = {}) {
         n.gps = gps;
         n.surface = d.surface;
         n.direction = direction;
-        if (opts.target) n.target = opts.target;
-        if (existing?.target && existing.direction !== direction && !opts.target) delete n.target;
+        if (opts.target && direction === opts.direction) n.target = opts.target;
+        else if (opts.target || existing?.direction !== direction) delete n.target;
         if (existing && existing.wallId !== w) {
           delete n.t;
           delete n.anchor;
@@ -468,7 +470,7 @@ export function noteForm(ctx, existing = null, newAnchor = null, opts = {}) {
         };
         f.elements.roomId.onchange = update;
         update();
-        f.elements.wallId.value = existing?.wallId || wall?.id || '';
+        f.elements.wallId.value = initialWall || '';
       },
     },
   );

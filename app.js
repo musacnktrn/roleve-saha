@@ -15,7 +15,7 @@ import {
   hitSketches,
   faceFrame,
 } from './ui/sketch.js';
-import { bearingOnPlan, photoViewPoint } from './ui/photo-placement.js';
+import { bearingOnPlan, photoViewPoint, photoAimMarkup } from './ui/photo-placement.js';
 import { sampleProject } from './ui/demo.js';
 import { layout, library, customersPage } from './ui/layout.js';
 import { modes, toolLabel } from './ui/layout.js';
@@ -377,10 +377,17 @@ function applyBox(v) {
 function zoom(f, anchor) {
   if (box) applyBox(zoomBox(box, f, anchor));
 }
+function drawPhotoGuide(origin = null, target = null) {
+  const layer = lastSvg?.querySelector('#draft-layer');
+  if (!layer || s.tool !== 'photoLocate') return;
+  const camera = s.draft[0] || origin;
+  layer.innerHTML = camera ? photoAimMarkup(camera, target, lastSvg.getScreenCTM()?.a || 1) : '';
+}
 function renderDraft() {
   if (!lastSvg) return;
   const g = lastSvg.querySelector('#draft-layer');
-  if (g) {
+  if (s.tool === 'photoLocate') drawPhotoGuide();
+  else if (g) {
     const points = s.draft.length
       ? s.draft
       : s.anchors
@@ -411,7 +418,7 @@ function renderDraft() {
     hint = `${s.anchors.length ? 'Bitiş ucunu seç' : 'Başlangıç ucunu seç'} ${s.anchors.length ? controls('pop-point', 'Ucu değiştir') : ''}${controls('measure-form', 'Listeden seç')}`;
   if (s.tool === 'photoLocate')
     hint =
-      (s.draft.length ? 'Fotoğrafın baktığı yeri seçin.' : 'Planda kamerayı tuttuğunuz yeri seçin.') +
+      (s.draft.length ? 'Bakış yönü · Baktığın yere dokun veya sürükle.' : 'Kameranın yerine dokun veya oradan bakış yönüne sürükle.') +
       (s.draft.length ? ' ' + controls('pop-point', 'İlk noktayı değiştir') : '') +
       ' ' +
       controls('add-coordinate', 'X / Y');
@@ -427,7 +434,7 @@ function renderDraft() {
   if (s.tool === 'ink')
     hint = `<i class="ink-swatch" style="background:${s.ink.color}"></i>${inkBrushes.find((v) => v[0] === s.ink.brush)[1]} · ${inkShapes.find((v) => v[0] === s.ink.shape)[1]} ${controls('ink-settings', 'Kalemler ve renkler')}`;
   if (s.tool === 'erase') hint = 'Silmek istediğiniz eskiz çizgisine dokunun veya üzerinden geçin.';
-  if (hint) hint += ' ' + controls('exit-tool', 'Bitti');
+  if (hint) hint += ' ' + controls('exit-tool', s.tool === 'photoLocate' ? 'Vazgeç' : 'Bitti');
   h.innerHTML = hint;
 }
 function render() {
@@ -481,6 +488,16 @@ function render() {
   const wireDrawing = (onTap, onDragNode) =>
     wireCanvas(svg, {
       onTap: onTap ? guard(onTap) : () => {},
+      getProject: () => p,
+      getPhotoStart: () => s.tool === 'photoLocate' ? s.draft[0] ?? null : null,
+      onPhotoPreview: (origin, target) => {
+        if (svg === lastSvg && s.tool === 'photoLocate') drawPhotoGuide(origin, target);
+      },
+      onPhotoDrag: guard(async (start, startTarget, end, endTarget) => {
+        if (svg !== lastSvg || s.tool !== 'photoLocate') return;
+        if (!s.draft.length) await addPhotoPoint(start, startTarget);
+        if (s.tool === 'photoLocate') await addPhotoPoint(end, endTarget);
+      }),
       onDragNode: onDragNode ? guard(onDragNode) : () => {},
       onInk: guard(saveInk),
       onZoom: zoom,
@@ -593,20 +610,10 @@ async function saveInk(points) {
     addSketch(q, s, sampled, s.ink),
   );
 }
-function nodeDrag(id, newPos) {
-  const v = item(p.nodes, id);
-  if (!v) return;
-  form(
-    'Köşeyi taşı',
-    [
-      { key: 'x', label: `X (${p.unit})`, value: fmt(newPos.x, p.unit), number: true },
-      { key: 'y', label: `Y (${p.unit})`, value: fmt(newPos.y, p.unit), number: true },
-    ],
-    'Yeni konumu uygula',
-    (d) =>
-      change('Köşe taşındı', (q) => G.moveNode(q, id, { x: readMm(d.x, p.unit), y: readMm(d.y, p.unit) })),
-    { intro: `Önceki konum ${metre(v.x)}, ${metre(v.y)}. Bu köşeye bağlı duvarlar da güncellenir.` },
-  );
+async function nodeDrag(id, point) {
+  const node = item(p.nodes, id);
+  if (!node || node.x === point.x && node.y === point.y) return;
+  await change('Köşe taşındı', (draft) => G.moveNode(draft, id, point));
 }
 function floorRoomForWall(id) {
   return room()?.wallIds.includes(id)
@@ -782,7 +789,6 @@ async function planTap(v, t) {
   }
   if (t.node) {
     set({ nodeId: t.node });
-    nodeDrag(t.node, item(p.nodes, t.node));
     return;
   }
   if (t.zone) {
@@ -837,11 +843,16 @@ async function addPhotoPoint(point, target = {}) {
     renderDraft();
     return;
   }
-  const a = s.draft[0],
-    direction = bearingOnPlan(a, xyz),
+  const a = s.draft[0];
+  if (Math.hypot(a.x - xyz.x, a.y - xyz.y) < 1) {
+    renderDraft();
+    notify('Bakış yönü için çekim noktasından farklı bir yer seç.');
+    return;
+  }
+  const direction = bearingOnPlan(a, xyz),
     previous = s.photoContext?.noteId ? item(p.notes, s.photoContext.noteId) : null;
   const targetRoom = item(p.rooms, xyz.roomId),
-    scene = s.photoContext?.scene || previous?.scene || (!a.roomId ? 'exterior' : 'interior'),
+    scene = s.photoContext?.scene || (!a.roomId ? 'exterior' : 'interior'),
     surface =
       scene === 'exterior'
         ? 'facade'
@@ -851,7 +862,7 @@ async function addPhotoPoint(point, target = {}) {
   set({
     tool: 'select',
     roomId: targetRoom?.id || room()?.id,
-    wallId: xyz.wallId || previous?.wallId || null,
+    wallId: xyz.wallId,
     photoContext: null,
     draft: [],
     mobilePanel: '',
@@ -1620,7 +1631,7 @@ async function dispatch(act, id = '', el = null) {
         anchors: [],
         photoContext: {
           noteId: id || null,
-          scene: act === 'place-exterior' ? 'exterior' : note?.scene || null,
+          scene: act === 'place-exterior' ? 'exterior' : null,
         },
         mobilePanel: '',
       });

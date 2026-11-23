@@ -274,7 +274,9 @@ class TestPrivateVault(unittest.TestCase):
         p = sample("camera-files")
         base = "/api/projects/camera-files/"
         ks = []
-        for body, typ in ((heic, "image/heic"), (avif, "image/avif")):
+        padded_heic = bytes.fromhex("0000000866726565") + heic
+        inputs = ((heic, "image/heic"), (avif, "image/avif"), (padded_heic, "image/heif"))
+        for body, typ in inputs:
             sha = hashlib.sha256(body).hexdigest()
             ks.append(sha)
             self.assertEqual(
@@ -295,7 +297,7 @@ class TestPrivateVault(unittest.TestCase):
         # The HEIF-compatible source is also referenced by its container MIME; storage remains shared.
         p["notes"][0]["photo"]["preview"] = ref(ks[0], len(heic), "image/heif")
         self.assertEqual(self.save(p)[0], 200)
-        for sha, source in zip(ks, (heic, avif)):
+        for sha, (source, _) in zip(ks, inputs):
             status, body, headers = self.request(base + "media/" + sha, token=self.a)
             self.assertEqual(
                 (status, body, headers.get_content_type()),
@@ -307,7 +309,7 @@ class TestPrivateVault(unittest.TestCase):
                 db.execute(
                     "SELECT count(*) FROM media WHERE project=?", (p["id"],)
                 ).fetchone()[0],
-                2,
+                len(inputs),
             )
         p["notes"][0]["photo"]["original"] = ref(ks[0], len(heic), "image/avif")
         self.assertEqual(self.save(p, "bad-type", 1)[0], 400)

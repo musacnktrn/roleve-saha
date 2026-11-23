@@ -15,6 +15,8 @@ const profileKey = DB_NAME + ':offline-account';
 let connection;
 let offlineAccount;
 let lastFiles;
+// Some WebKit stores support IndexedDB but reject Blob writes (e.g. ephemeral stores).
+let useTextAttachments = false;
 
 export function selectOfflineAccount(profile) {
   offlineAccount = profile;
@@ -155,7 +157,7 @@ function mapFields(value, change, field = null, seen = new WeakMap()) {
   }
   return copy;
 }
-function compact(record, priorFiles) {
+function compact(record, priorFiles, asText) {
   const files = [],
     values = [],
     byValue = new Map();
@@ -166,7 +168,7 @@ function compact(record, priorFiles) {
       index = files.length;
       byValue.set(value, index);
       values.push(value);
-      files.push(priorFiles.get(value) || new Blob([value], { type: 'text/plain;charset=us-ascii' }));
+      files.push(asText ? value : (priorFiles.get(value) || new Blob([value], { type: 'text/plain;charset=us-ascii' })));
     }
     return { $roleveLocalFile: index };
   });
@@ -192,9 +194,9 @@ async function expand(raw, field) {
   });
   for (const index of needed) {
     const file = raw.files[index];
-    if (!Number.isInteger(index) || !(file instanceof Blob))
+    if (!Number.isInteger(index) || (typeof file !== 'string' && !(file instanceof Blob)))
       throw new StoreError('LOCAL_MEDIA', 'Cihazdaki ek dosya okunamadı.');
-    if (values[index] === undefined) values[index] = await file.text();
+    if (values[index] === undefined) values[index] = typeof file === 'string' ? file : await file.text();
     byValue.set(values[index], file);
   }
   lastFiles = { token: raw.token, values };
@@ -218,10 +220,10 @@ export async function changeRecord(id, change) {
       { record, byValue } = await expand(prior);
     const next = change(record);
     if (next === undefined) return record;
-    const packed = next === null ? null : compact(next, byValue);
+    let packed = next === null ? null : compact(next, byValue, useTextAttachments);
     const target = packed?.raw.id || prior?.id || scopedKey(id, profile);
     const priorKey = prior?.id || target;
-    return transaction('readwrite', (store, set, fail) => {
+    const write = () => transaction('readwrite', (store, set, fail) => {
       const previous = store.get(priorKey),
         destination = priorKey !== target ? store.get(target) : null;
       const commit = () => {
@@ -238,10 +240,20 @@ export async function changeRecord(id, change) {
         }
       };
       (destination || previous).onsuccess = commit;
-    }).then((saved) => {
-      lastFiles = packed?.cache;
-      return saved;
     });
+    let saved;
+    try {
+      saved = await write();
+    } catch (error) {
+      const blobFailure = error?.name === 'DataCloneError' || /preparing blob|blob\/file|blob urls are not yet supported/i.test(error?.message || '');
+      if (!blobFailure || !packed?.raw.files.some(file => file instanceof Blob)) throw error;
+      // The first transaction aborted. Reuse the same proposed change and repeat the token/account check.
+      packed = compact(next, byValue, true);
+      saved = await write();
+      useTextAttachments = true;
+    }
+    lastFiles = packed?.cache;
+    return saved;
   };
   return globalThis.navigator?.locks ? navigator.locks.request(DB_NAME + ':' + id, apply) : apply();
 }
