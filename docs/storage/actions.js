@@ -115,7 +115,7 @@ async function login(id, ctx) {
   const codespace = location.protocol === 'https:' && location.hostname.endsWith('-8794.app.github.dev');
   const fallback = state?.server || ((await sameOriginAPI()) ? location.origin : '');
   form(
-    codespace ? 'Ekip hesabıyla giriş' : 'Özel sunucuya bağlan',
+    codespace ? 'Geliştirme hesabıyla giriş' : 'Özel sunucuya bağlan',
     [
       ...(codespace ? [] : [{
         key: 'url',
@@ -563,7 +563,7 @@ async function panel(id, ctx) {
       body += row('share', 'Proje erişimini yönet', 'settings');
     body += row('logout', 'Sunucu oturumunu kapat', 'close');
   } else {
-    body += row('login', location.hostname.endsWith('-8794.app.github.dev') ? 'Ekip hesabıyla giriş' : 'Özel sunucuya bağlan', 'cloud');
+    body += row('login', location.hostname.endsWith('-8794.app.github.dev') ? 'Geliştirme hesabıyla giriş' : 'Özel sunucuya bağlan', 'cloud');
   }
   if (id && state) {
     body +=
@@ -597,9 +597,9 @@ async function panel(id, ctx) {
 export async function storageAction(act, id, ctx) {
   if (!['cloud', 'cloud-sync', 'versions', 'team-login'].includes(act)) return false;
   const projectId = id || ctx.p?.id;
-  if (location.hostname === 'musacnktrn.github.io' && /^\/roleve-saha(?:\/|$)/.test(location.pathname)) {
-    (await import('../ui/github-workspace.js')).showWorkspace(ctx);
-    return true;
+  if (location.hostname === 'musacnktrn.github.io') {
+    const github = await import('../ui/github-workspace.js');
+    if (github.isPublishedStudio()) { github.showWorkspace(ctx); return true; }
   }
   if (act === 'team-login' && !cloudSession()) { await login(projectId, ctx); return true; }
   if (act === 'versions') await history(projectId, ctx);

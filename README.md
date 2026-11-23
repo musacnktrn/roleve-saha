@@ -6,7 +6,7 @@ iPad, telefon ve bilgisayarda mimari saha ölçümü. [Uygulamayı aç](https://
 
 **Bulut** düğmesinden projeyi fotoğraflarıyla [özel arşive](https://github.com/musacnktrn/roleve-saha-ekip/tree/main/arsiv) aktarabilir, başka cihazda aynı sürümü açabilirsin. İndirilen sürümü GitHub yükleme ekranında **Commit changes** ile kaydet. Arşiv erişimi depo genelindedir.
 
-Ekip kullanıcılarını ve proje bazında yetkiyi yönetmek için [özel ekip sunucusunu](https://github.com/musacnktrn/roleve-saha-sunucu) GitHub Codespaces üzerinde aç. Yönetici ekip adresini paylaşır. Çalışanlar bu adreste kendi kullanıcı adı ve parolasıyla çalışır. Ekip alanında eşitlenen değişiklikler GitHub'daki şifreli veri dalına yazılır. Codespace durduğunda çevrimdışı ve özel dosya arşivi kullanılabilir.
+Ekibin üyeleri kendi GitHub hesaplarıyla [özel saha defterinde](https://github.com/musacnktrn/roleve-saha-ekip/issues) ziyaret açabilir. Yönetici [üye erişimini](https://github.com/musacnktrn/roleve-saha-ekip/settings/access) ve [sürüm geçmişini](https://github.com/musacnktrn/roleve-saha-ekip/commits/main/arsiv/) yönetir. Proje dosyasıyla birlikte verilen saha kartında müşteri, proje sorumlusu, sahada ölçüyü alan kişiler ve dosyalara bağlantılar yer alır.
 
 ## İlk ziyaret
 
@@ -25,11 +25,11 @@ Ekip kullanıcılarını ve proje bazında yetkiyi yönetmek için [özel ekip s
 
 **Dışa aktar → Tam proje** ile fotoğrafları ve işaretleri içeren bir yedek al. Dosyayı iCloud Drive veya cihazının dosya sağlayıcısına kaydedebilirsin. **Projeler → Dosyadan aç** ile geri yükle. Tarayıcı verisini silmeden veya cihaz değiştirmeden önce eşitleme durumunu ya da arşivini kontrol et.
 
-**Bulut ve yedekler** alanından özel HTTPS sunucusuna bağlanıldığında kullanıcılar proje erişimine göre eşitler. Aynı duvar üzerinde çakışan düzenlemeler kullanıcı seçimine gelir. GitHub Pages uygulama dosyalarını sunar. Kurumun proje kayıtları, üyelik parolaları ve fotoğrafları özel sunucuda tutulur. [Özel sunucu kurulumu ve yedekten geri dönüş](server/README.md)
+Günlük kullanımda GitHub Pages uygulamayı sunar. Projeler, fotoğraflar ve saha kartları ekip tarafından özel depoya sürüm olarak kaydedilir. Aynı projede birden fazla kişi çalışacaksa son sürümü indir ve saha defterinde kimin düzenlediğini belirt.
 
 ## Ekip
 
-Özel sunucudaki yönetici kullanıcı adıyla üye açar ve parola belirler. İzin verilen projeler için görüntüleme ve düzenleme rolleri vardır. Saha ziyareti açarken ölçüyü alan kişinin adını gir. Yönetici paneli kendi ekibinin işlerinde sahada bildirilen kişi ile sunucuya yazan hesabı ve kayıt zamanını ayrı gösterir. Kamuya açık örnek projeler sentetiktir.
+GitHub hesabıyla yapılan yükleme, zaman ve dosya geçmişi özel depoda görünür. Her ziyaretin ölçüyü alan kişisi saha defterinde tutulur. Uygulamaya özel parola ve otomatik eşitleme sunucusu ayrı bir geliştirme bileşenidir. GitHub Codespaces kullanımı geliştirme ve testle sınırlıdır. [GitHub koşulları](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#codespaces)
 
 ## Yerelde çalıştırma
 
