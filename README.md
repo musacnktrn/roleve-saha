@@ -2,6 +2,12 @@
 
 iPad, telefon ve bilgisayarda mimari saha ölçümü. [Uygulamayı aç](https://musacnktrn.github.io/roleve-saha/)
 
+## GitHub'da kayıt ve ekip
+
+**Bulut** düğmesinden projeyi fotoğraflarıyla [özel arşive](https://github.com/musacnktrn/roleve-saha-ekip/tree/main/arsiv) aktarabilir, başka cihazda aynı sürümü açabilirsin. İndirilen sürümü GitHub yükleme ekranında **Commit changes** ile kaydet. Arşiv erişimi depo genelindedir.
+
+Ekip kullanıcılarını ve proje bazında yetkiyi yönetmek için [özel ekip sunucusunu](https://github.com/musacnktrn/roleve-saha-sunucu) GitHub Codespaces üzerinde aç. Yönetici ekip adresini paylaşır. Çalışanlar bu adreste kendi kullanıcı adı ve parolasıyla çalışır. Ekip alanında eşitlenen değişiklikler GitHub'daki şifreli veri dalına yazılır. Codespace durduğunda çevrimdışı ve özel dosya arşivi kullanılabilir.
+
 ## İlk ziyaret
 
 1. **Müşteriler → Yeni müşteri** ile kişi veya firma kartını oluştur. Kartın içinden **Yeni proje** seçerek aynı müşteriye istediğin kadar proje bağlayabilirsin. Müşterisiz kişisel çalışma da açılabilir.

@@ -112,24 +112,25 @@ async function sameOriginAPI() {
 }
 async function login(id, ctx) {
   const state = id ? await getSyncState(id) : null;
+  const codespace = location.protocol === 'https:' && location.hostname.endsWith('-8794.app.github.dev');
   const fallback = state?.server || ((await sameOriginAPI()) ? location.origin : '');
   form(
-    'Özel sunucuya bağlan',
+    codespace ? 'Ekip hesabıyla giriş' : 'Özel sunucuya bağlan',
     [
-      {
+      ...(codespace ? [] : [{
         key: 'url',
         label: 'Sunucu adresi',
         required: true,
         value: fallback,
         placeholder: 'https://rolove.ornek.com',
         full: true,
-      },
+      }]),
       { key: 'username', label: 'Kullanıcı adı', required: true, value: state?.username || '', full: true },
       { key: 'password', label: 'Parola', type: 'password', required: true, full: true },
     ],
     'Oturum aç',
     async ({ url, username, password }, f) => {
-      await loginCloud({ url, username, password });
+      await loginCloud({ url: codespace ? location.origin : url, username, password });
       f.querySelector('[name=password]').value = '';
       await ctx.refreshList?.();
       if (ctx.p && !(await loadProject(ctx.p.id))) await ctx.refreshProject?.(ctx.p.id);
@@ -562,7 +563,7 @@ async function panel(id, ctx) {
       body += row('share', 'Proje erişimini yönet', 'settings');
     body += row('logout', 'Sunucu oturumunu kapat', 'close');
   } else {
-    body += row('login', 'Özel sunucuya bağlan', 'cloud');
+    body += row('login', location.hostname.endsWith('-8794.app.github.dev') ? 'Ekip hesabıyla giriş' : 'Özel sunucuya bağlan', 'cloud');
   }
   if (id && state) {
     body +=
@@ -572,7 +573,9 @@ async function panel(id, ctx) {
       ) +
       row('persist', 'Kalıcı cihaz depolaması iste', 'archive');
   }
+  body += row('github', 'GitHub proje arşivi', 'archive');
   menu('Bulut ve yedekler', body, async (act) => {
+    if (act === 'github') return (await import('../ui/github-workspace.js')).showWorkspace(ctx);
     if (act === 'login') return login(id, ctx);
     if (act === 'sync')
       return state?.state === 'conflict' ? chooseConflicts(id, ctx, state.conflicts) : afterSync(id, ctx);
@@ -592,8 +595,13 @@ async function panel(id, ctx) {
   });
 }
 export async function storageAction(act, id, ctx) {
-  if (!['cloud', 'cloud-sync', 'versions'].includes(act)) return false;
+  if (!['cloud', 'cloud-sync', 'versions', 'team-login'].includes(act)) return false;
   const projectId = id || ctx.p?.id;
+  if (location.hostname === 'musacnktrn.github.io' && /^\/roleve-saha(?:\/|$)/.test(location.pathname)) {
+    (await import('../ui/github-workspace.js')).showWorkspace(ctx);
+    return true;
+  }
+  if (act === 'team-login' && !cloudSession()) { await login(projectId, ctx); return true; }
   if (act === 'versions') await history(projectId, ctx);
   else if (act === 'cloud-sync' && projectId && cloudSession()) await afterSync(projectId, ctx);
   else await panel(projectId, ctx);

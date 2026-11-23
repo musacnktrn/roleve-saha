@@ -352,6 +352,7 @@ function ctx() {
     refreshList,
     refreshProject,
     selectProject,
+    importArchive,
   };
 }
 function applyBox(v) {
@@ -1081,6 +1082,16 @@ function newProject() {
     { after: customerFields },
   );
 }
+async function importArchive(raw) {
+  const q = validateExtras(G.normalizeProject(raw.project || raw));
+  if (await DB.loadProject(q.id)) {
+    q.id = uid();
+    q.name += ' · İçe aktarılan kopya';
+  }
+  await createNew(q);
+  closeDialog();
+  notify('Arşiv açıldı.');
+}
 function importProject() {
   form(
     'Proje dosyasından aç',
@@ -1111,13 +1122,7 @@ function importProject() {
       } catch {
         throw Error('Dosya geçerli bir proje JSON’u içermiyor.');
       }
-      const q = validateExtras(G.normalizeProject(raw.project || raw));
-      if (await DB.loadProject(q.id)) {
-        q.id = uid();
-        q.name += ' · İçe aktarılan kopya';
-      }
-      await createNew(q);
-      notify('Arşiv açıldı.');
+      await importArchive(raw);
     },
     {
       intro:
@@ -1284,7 +1289,7 @@ async function dispatch(act, id = '', el = null) {
     set({ archived: act === 'list-archived' });
     return;
   }
-  if (['cloud', 'cloud-sync', 'versions'].includes(act)) {
+  if (['cloud', 'cloud-sync', 'versions', 'team-login'].includes(act)) {
     const { storageAction } = await import('./storage/actions.js');
     await storageAction(act, id, ctx());
     return;
@@ -1771,6 +1776,9 @@ async function start() {
     s.archived = true;
   }
   render();
+  if (location.hash === '#ekip' && location.hostname.endsWith('-8794.app.github.dev')) {
+    await dispatch('team-login');
+  }
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker
       .register('./sw.js', { scope: './', updateViaCache: 'none' })

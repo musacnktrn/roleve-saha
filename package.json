@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Çevrimdışı mimari saha rölövesi",
   "scripts": {
-    "test": "node --test geometry/tests/geometry.test.mjs views/tests/views.test.js photo/tests/annotations.test.mjs openings/tests/drawing.test.mjs tests/app.test.mjs"
+    "test": "node --test geometry/tests/geometry.test.mjs views/tests/views.test.js photo/tests/annotations.test.mjs openings/tests/drawing.test.mjs storage/github/tests/bundle.test.mjs tests/app.test.mjs"
   }
 }
